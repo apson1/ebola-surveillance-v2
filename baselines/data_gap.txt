@@ -1,0 +1,16 @@
+# Baseline (Option A) — scenario: data_gap
+# source: data/incoming/incoming_data_gap.json
+status: success
+detector_set (deterministic): ['stale_or_missing']
+ranked_order (LLM-influenced): ['stale_or_missing', 'stale_or_missing']
+top_signal: stale_or_missing
+
+--- ALERT TEXT ---
+ALERT: Expected reporting from health zone Nyankunde (Ituri) is missing
+
+- [stale_or_missing] Nyankunde (Ituri) is missing from the incoming report (prior: confirmed_cases=68, deaths=15, source: https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608, report_date_prior: 2026-06-19T00:00:00)
+- [stale_or_missing] Rwampara (Ituri) has null value(s) in required field(s): ['confirmed_cases'] (source: https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21, report_date: 2026-06-21T00:00:00)
+
+CONFIDENCE AND DATA-QUALITY NOTE: Reporting gaps or null data fields were flagged in this scan. All data counts are as-reported by the source agencies and are currently unverified. Surveillance system integrity may be degraded by these missing reports.
+
+ESCALATION: Human coordinator must verify the flagged signal(s) and cited numbers against the source reports and decide. This tool is for decision support only and does not make autonomous clinical or operational decisions.

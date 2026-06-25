@@ -1,0 +1,15 @@
+# Baseline (Option A) — scenario: spike
+# source: data/incoming/incoming_spike.json
+status: success
+detector_set (deterministic): ['surge']
+ranked_order (LLM-influenced): ['surge']
+top_signal: surge
+
+--- ALERT TEXT ---
+ALERT: Rapid confirmed case surge detected in Mongbwalu (Ituri)
+
+- [surge] Mongbwalu (Ituri): confirmed cases 189 -> 372, daily_new=61.0, pct_growth=96.8% (source: https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21, report_date: 2026-06-21T00:00:00)
+
+CONFIDENCE AND DATA-QUALITY NOTE: No reporting gaps or null fields were flagged in this scan. However, all data counts are as-reported by the source agencies and remain unverified.
+
+ESCALATION: Human coordinator must verify the flagged signal(s) and cited numbers against the source reports and decide. This tool is for decision support only and does not make autonomous clinical or operational decisions.

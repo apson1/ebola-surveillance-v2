@@ -1,0 +1,15 @@
+# Baseline (Option A) — scenario: new_zone
+# source: data/incoming/incoming_new_zone.json
+status: success
+detector_set (deterministic): ['new_zone']
+ranked_order (LLM-influenced): ['new_zone']
+top_signal: new_zone
+
+--- ALERT TEXT ---
+ALERT: New transmission zone detected in Komanda (Ituri)
+
+- [new_zone] Komanda (Ituri): confirmed_cases=9 (source: https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21, report_date: 2026-06-21T00:00:00)
+
+CONFIDENCE AND DATA-QUALITY NOTE: No reporting gaps or null fields were flagged in this scan. However, all data counts are as-reported by the source agencies and remain unverified.
+
+ESCALATION: Human coordinator must verify the flagged signal(s) and cited numbers against the source reports and decide. This tool is for decision support only and does not make autonomous clinical or operational decisions.

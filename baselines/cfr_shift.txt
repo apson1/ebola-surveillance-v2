@@ -1,0 +1,15 @@
+# Baseline (Option A) — scenario: cfr_shift
+# source: data/incoming/incoming_cfr_shift.json
+status: success
+detector_set (deterministic): ['cfr_shift']
+ranked_order (LLM-influenced): ['cfr_shift']
+top_signal: cfr_shift
+
+--- ALERT TEXT ---
+ALERT: Significant rise in Case Fatality Ratio detected in Beni (North Kivu)
+
+- [cfr_shift] Beni (North Kivu): CFR 20.5% -> 44.4% (shift: 23.9%) (source: https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21, report_date: 2026-06-21T00:00:00)
+
+CONFIDENCE AND DATA-QUALITY NOTE: No reporting gaps or null fields were flagged in this scan. However, all data counts are as-reported by the source agencies and remain unverified.
+
+ESCALATION: Human coordinator must verify the flagged signal(s) and cited numbers against the source reports and decide. This tool is for decision support only and does not make autonomous clinical or operational decisions.

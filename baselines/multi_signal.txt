@@ -1,0 +1,18 @@
+# Baseline (Option A) — scenario: multi_signal
+# source: data/incoming/incoming_multi_signal.json
+status: success
+detector_set (deterministic): ['cfr_shift', 'new_zone', 'stale_or_missing', 'surge']
+ranked_order (LLM-influenced): ['cfr_shift', 'surge', 'new_zone', 'stale_or_missing']
+top_signal: cfr_shift
+
+--- ALERT TEXT ---
+ALERT: Significant rise in Case Fatality Ratio detected in Beni (North Kivu)
+
+- [cfr_shift] Beni (North Kivu): CFR 20.5% -> 45.7% (shift: 25.1%) (source: https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21, report_date: 2026-06-21T00:00:00)
+- [surge] Bunia (Ituri): confirmed cases 247 -> 430, daily_new=61.0, pct_growth=74.1% (source: https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21, report_date: 2026-06-21T00:00:00)
+- [new_zone] Komanda (Ituri): confirmed_cases=10 (source: https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21, report_date: 2026-06-21T00:00:00)
+- [stale_or_missing] Nyankunde (Ituri) is missing from the incoming report (prior: confirmed_cases=68, deaths=15, source: https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608, report_date_prior: 2026-06-19T00:00:00)
+
+CONFIDENCE AND DATA-QUALITY NOTE: Reporting gaps or null data fields were flagged in this scan. All data counts are as-reported by the source agencies and are currently unverified. Surveillance system integrity may be degraded by these missing reports.
+
+ESCALATION: Human coordinator must verify the flagged signal(s) and cited numbers against the source reports and decide. This tool is for decision support only and does not make autonomous clinical or operational decisions.

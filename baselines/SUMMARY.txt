@@ -1,0 +1,7 @@
+Option-A baselines (captured pre-ADK refactor)
+==================================================
+new_zone       top=new_zone           set=['new_zone']
+spike          top=surge              set=['surge']
+data_gap       top=stale_or_missing   set=['stale_or_missing']
+cfr_shift      top=cfr_shift          set=['cfr_shift']
+multi_signal   top=cfr_shift          set=['cfr_shift', 'new_zone', 'stale_or_missing', 'surge']
