@@ -1,0 +1,13 @@
+{
+  "report_date": "2026-06-21",
+  "scenario": "cfr_shift",
+  "note": "Beni deaths jump from 16 to 40 while confirmed rises only modestly. Expected single flag: cfr_shift (Beni). A rising fatality ratio can signal late detection or collapse of care.",
+  "data": [
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Bunia", "suspected_cases": 300, "confirmed_cases": 264, "deaths": 57, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Rwampara", "suspected_cases": 228, "confirmed_cases": 210, "deaths": 44, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Mongbwalu", "suspected_cases": 215, "confirmed_cases": 203, "deaths": 42, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Nyankunde", "suspected_cases": 82, "confirmed_cases": 74, "deaths": 16, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Beni", "suspected_cases": 100, "confirmed_cases": 90, "deaths": 40, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Oicha", "suspected_cases": 58, "confirmed_cases": 40, "deaths": 9, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"}
+  ]
+}

@@ -1,0 +1,21 @@
+date,province,health_zone,suspected_cases,confirmed_cases,deaths,source_url,report_date
+2026-05-15,Ituri,Bunia,80,8,4,https://reliefweb.int/report/democratic-republic-congo/dr-congo-health-cluster-situational-report-1-17-may-2026,2026-05-17
+2026-05-15,Ituri,Rwampara,60,5,3,https://reliefweb.int/report/democratic-republic-congo/dr-congo-health-cluster-situational-report-1-17-may-2026,2026-05-17
+2026-05-15,Ituri,Mongbwalu,70,6,4,https://reliefweb.int/report/democratic-republic-congo/dr-congo-health-cluster-situational-report-1-17-may-2026,2026-05-17
+2026-05-20,Ituri,Bunia,150,45,12,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-05-23
+2026-05-20,Ituri,Rwampara,120,35,10,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-05-23
+2026-05-20,Ituri,Mongbwalu,110,32,9,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-05-23
+2026-05-20,Ituri,Nyankunde,40,10,3,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-05-23
+2026-05-20,North Kivu,Beni,20,4,1,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-05-23
+2026-06-10,Ituri,Bunia,220,185,35,https://reliefweb.int/report/democratic-republic-congo/disease-outbreak-news-ebola-disease-caused-bundibugyo-virus-democratic-republic-congo-uganda-13-june-2026,2026-06-13
+2026-06-10,Ituri,Rwampara,160,137,28,https://reliefweb.int/report/democratic-republic-congo/disease-outbreak-news-ebola-disease-caused-bundibugyo-virus-democratic-republic-congo-uganda-13-june-2026,2026-06-13
+2026-06-10,Ituri,Mongbwalu,150,132,25,https://reliefweb.int/report/democratic-republic-congo/disease-outbreak-news-ebola-disease-caused-bundibugyo-virus-democratic-republic-congo-uganda-13-june-2026,2026-06-13
+2026-06-10,Ituri,Nyankunde,50,33,8,https://reliefweb.int/report/democratic-republic-congo/disease-outbreak-news-ebola-disease-caused-bundibugyo-virus-democratic-republic-congo-uganda-13-june-2026,2026-06-13
+2026-06-10,North Kivu,Beni,60,40,9,https://reliefweb.int/report/democratic-republic-congo/disease-outbreak-news-ebola-disease-caused-bundibugyo-virus-democratic-republic-congo-uganda-13-june-2026,2026-06-13
+2026-06-10,North Kivu,Oicha,25,12,3,https://reliefweb.int/report/democratic-republic-congo/disease-outbreak-news-ebola-disease-caused-bundibugyo-virus-democratic-republic-congo-uganda-13-june-2026,2026-06-13
+2026-06-17,Ituri,Bunia,280,247,55,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-06-19
+2026-06-17,Ituri,Rwampara,210,195,42,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-06-19
+2026-06-17,Ituri,Mongbwalu,200,189,40,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-06-19
+2026-06-17,Ituri,Nyankunde,75,68,15,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-06-19
+2026-06-17,North Kivu,Beni,95,78,16,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-06-19
+2026-06-17,North Kivu,Oicha,50,35,8,https://www.who.int/emergencies/disease-outbreak-news/item/2026-DON608,2026-06-19

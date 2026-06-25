@@ -1,0 +1,13 @@
+{
+  "report_date": "2026-06-21",
+  "scenario": "spike",
+  "note": "All zones grow normally except Mongbwalu, which jumps from 189 to 372 confirmed. Expected single flag: surge (Mongbwalu).",
+  "data": [
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Bunia", "suspected_cases": 300, "confirmed_cases": 263, "deaths": 57, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Rwampara", "suspected_cases": 228, "confirmed_cases": 209, "deaths": 44, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Mongbwalu", "suspected_cases": 400, "confirmed_cases": 372, "deaths": 70, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Nyankunde", "suspected_cases": 82, "confirmed_cases": 73, "deaths": 16, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Beni", "suspected_cases": 105, "confirmed_cases": 88, "deaths": 17, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Oicha", "suspected_cases": 58, "confirmed_cases": 40, "deaths": 9, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"}
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "report_date": "2026-06-21",
+  "scenario": "new_zone",
+  "note": "National EOC daily report covering all active zones. Komanda is new. Expected single flag: new_zone (Komanda).",
+  "data": [
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Bunia", "suspected_cases": 300, "confirmed_cases": 265, "deaths": 57, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Rwampara", "suspected_cases": 228, "confirmed_cases": 210, "deaths": 44, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Mongbwalu", "suspected_cases": 215, "confirmed_cases": 204, "deaths": 42, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Nyankunde", "suspected_cases": 82, "confirmed_cases": 74, "deaths": 16, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Beni", "suspected_cases": 108, "confirmed_cases": 90, "deaths": 18, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Oicha", "suspected_cases": 60, "confirmed_cases": 42, "deaths": 9, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Komanda", "suspected_cases": 30, "confirmed_cases": 9, "deaths": 2, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"}
+  ]
+}

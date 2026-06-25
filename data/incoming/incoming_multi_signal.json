@@ -1,0 +1,13 @@
+{
+  "report_date": "2026-06-21",
+  "scenario": "multi_signal",
+  "note": "Stress test for ranking and the LLM guard. Four simultaneous flags from four different zones: surge (Bunia), cfr_shift (Beni), new_zone (Komanda), stale_or_missing (Nyankunde omitted). Rwampara, Mongbwalu, Oicha grow normally.",
+  "data": [
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Bunia", "suspected_cases": 470, "confirmed_cases": 430, "deaths": 96, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Rwampara", "suspected_cases": 228, "confirmed_cases": 210, "deaths": 44, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Mongbwalu", "suspected_cases": 215, "confirmed_cases": 203, "deaths": 42, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Beni", "suspected_cases": 105, "confirmed_cases": 92, "deaths": 42, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Oicha", "suspected_cases": 58, "confirmed_cases": 40, "deaths": 9, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Komanda", "suspected_cases": 32, "confirmed_cases": 10, "deaths": 2, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "report_date": "2026-06-21",
+  "scenario": "data_gap",
+  "note": "Rwampara confirmed_cases is null. Nyankunde, present in history, is omitted. Expected flags: stale_or_missing for the Rwampara null and the missing Nyankunde. Must load without error.",
+  "data": [
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Bunia", "suspected_cases": 298, "confirmed_cases": 262, "deaths": 56, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Rwampara", "suspected_cases": 225, "confirmed_cases": null, "deaths": 43, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "Ituri", "health_zone": "Mongbwalu", "suspected_cases": 210, "confirmed_cases": 198, "deaths": 41, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Beni", "suspected_cases": 102, "confirmed_cases": 85, "deaths": 17, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"},
+    {"date": "2026-06-20", "province": "North Kivu", "health_zone": "Oicha", "suspected_cases": 56, "confirmed_cases": 38, "deaths": 9, "source_url": "https://reliefweb.int/updates?search=ebola+drc+eoc+2026-06-21"}
+  ]
+}
