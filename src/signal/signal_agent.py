@@ -12,26 +12,11 @@ from google import genai
 
 from src.config import GEMINI_API_KEY, GEMINI_MODEL
 from src.signal.detectors import run_all_detectors
+from src.signal.ranking import apply_rank_guard, fallback_rank_flags, FALLBACK_REASONING
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-def fallback_rank_flags(flags: List[Dict]) -> List[Dict]:
-    """
-    Fallback ranking: Sort flags deterministically by priority:
-    1. cfr_shift
-    2. surge
-    3. new_zone
-    4. stale_or_missing
-    """
-    priority = {
-        "cfr_shift": 1,
-        "surge": 2,
-        "new_zone": 3,
-        "stale_or_missing": 4
-    }
-    return sorted(flags, key=lambda f: priority.get(f.get("detector"), 99))
 
 
 def clean_and_parse_json(text: str) -> Dict:
@@ -109,34 +94,22 @@ Return ONLY a valid JSON object. Do not wrap it in markdown formatting or anythi
         result = clean_and_parse_json(response.text)
         order = result.get("order", [])
         reasoning = result.get("reasoning", "")
-        
-        # Convert all elements of order to integer
-        try:
-            order_ints = [int(x) for x in order]
-        except (ValueError, TypeError):
-            order_ints = []
-            
-        # Verify returned order is a clean permutation of range(len(flags))
-        if sorted(order_ints) == list(range(len(flags))):
-            logger.info("LLM Guard passed successfully.")
-            ranked_flags = [flags[idx] for idx in order_ints]
+
+        # The id-based guard is the single source of truth (src.signal.ranking).
+        ranked_flags, used_fallback = apply_rank_guard(flags, order)
+        if used_fallback:
             return {
                 "status": "success",
                 "flags": ranked_flags,
-                "reasoning": reasoning
+                "reasoning": FALLBACK_REASONING,
             }
-        else:
-            logger.warning(f"LLM Guard failed. Invalid order list: {order}. Falling back to deterministic sorting.")
-            fallback_flags = fallback_rank_flags(flags)
-            return {
-                "status": "success",
-                "flags": fallback_flags,
-                "reasoning": (
-                    "[LLM Guard Fallback] The model output did not return a valid permutation of the flag IDs. "
-                    "Reverted to deterministic priority ordering: cfr_shift > surge > new_zone > stale_or_missing."
-                )
-            }
-            
+        logger.info("LLM Guard passed successfully.")
+        return {
+            "status": "success",
+            "flags": ranked_flags,
+            "reasoning": reasoning,
+        }
+
     except Exception as e:
         logger.error(f"Error calling LLM or parsing response: {e}. Falling back.")
         fallback_flags = fallback_rank_flags(flags)
