@@ -5,3 +5,4 @@ langchain-google-genai
 python-dotenv
 requests
 mcp
+google-adk==2.3.0  # ADK refactor (Phase-0 smoke verified 2026-06-24); pulls in google-genai. See requirements.lock for the full freeze.
