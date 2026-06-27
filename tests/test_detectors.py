@@ -1,5 +1,4 @@
 import unittest
-from unittest.mock import patch, MagicMock
 import pandas as pd
 
 from src.signal.detectors import (
@@ -8,7 +7,7 @@ from src.signal.detectors import (
     detect_cfr_shift,
     detect_stale_or_missing,
 )
-from src.signal.signal_agent import run_signal_agent
+from src.signal.ranking import apply_rank_guard
 
 class TestDetectors(unittest.TestCase):
     def setUp(self):
@@ -178,70 +177,27 @@ class TestDetectors(unittest.TestCase):
         self.assertEqual(len(surge_flags), 0)
         self.assertEqual(len(cfr_flags), 0)
 
-    @patch("src.signal.signal_agent.genai.Client")
-    def test_llm_guard_tampered_ids(self, mock_client_class):
-        """Verify that the LLM Guard rejects a tampered ID list and falls back to deterministic ordering."""
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_response = MagicMock()
-        # Mock returns order [0, 99] which is not a valid permutation of [0, 1]
-        mock_response.text = '{"order": [0, 99], "reasoning": "tampered response"}'
-        mock_client.models.generate_content.return_value = mock_response
-
-        # Mock prior snapshot and incoming data that will trigger two flags
-        # e.g., Bunia (surge) and Beni (cfr_shift)
-        prior = [
-            {
-                "date": "2026-06-17",
-                "province": "Ituri",
-                "health_zone": "Bunia",
-                "suspected_cases": 100,
-                "confirmed_cases": 80,
-                "deaths": 20,
-                "source_url": "http://source1",
-                "report_date": "2026-06-19",
-            },
-            {
-                "date": "2026-06-17",
-                "province": "North Kivu",
-                "health_zone": "Beni",
-                "suspected_cases": 50,
-                "confirmed_cases": 40,
-                "deaths": 10,
-                "source_url": "http://source1",
-                "report_date": "2026-06-19",
-            }
+    def test_llm_guard_rejects_non_permutation(self):
+        """The id-based guard rejects a tampered order (not a clean permutation) and falls
+        back to deterministic priority ordering: cfr_shift before surge."""
+        flags = [
+            {"detector": "surge", "health_zone": "Bunia"},
+            {"detector": "cfr_shift", "health_zone": "Beni"},
         ]
-        incoming = [
-            {
-                "date": "2026-06-20",
-                "province": "Ituri",
-                "health_zone": "Bunia",
-                "suspected_cases": 300,
-                "confirmed_cases": 200, # surge (daily_new = 40)
-                "deaths": 40,
-                "source_url": "http://source2",
-                "report_date": "2026-06-21",
-            },
-            {
-                "date": "2026-06-20",
-                "province": "North Kivu",
-                "health_zone": "Beni",
-                "suspected_cases": 60,
-                "confirmed_cases": 50, # confirmed >= 20
-                "deaths": 25, # CFR = 50% (cfr_shift)
-                "source_url": "http://source2",
-                "report_date": "2026-06-21",
-            }
-        ]
+        # order [0, 99] is not a clean permutation of [0, 1]
+        ranked, used_fallback = apply_rank_guard(flags, [0, 99])
+        self.assertTrue(used_fallback)
+        self.assertEqual([f["detector"] for f in ranked], ["cfr_shift", "surge"])
 
-        result = run_signal_agent(prior, incoming)
-        self.assertEqual(result["status"], "success")
-        # Due to fallback: priority order is cfr_shift first, then surge
-        self.assertEqual(len(result["flags"]), 2)
-        self.assertEqual(result["flags"][0]["detector"], "cfr_shift")
-        self.assertEqual(result["flags"][1]["detector"], "surge")
-        self.assertIn("[LLM Guard Fallback]", result["reasoning"])
+    def test_llm_guard_accepts_valid_permutation(self):
+        """A clean permutation of the ids is honored verbatim (no fallback)."""
+        flags = [
+            {"detector": "surge", "health_zone": "Bunia"},
+            {"detector": "cfr_shift", "health_zone": "Beni"},
+        ]
+        ranked, used_fallback = apply_rank_guard(flags, [1, 0])
+        self.assertFalse(used_fallback)
+        self.assertEqual([f["detector"] for f in ranked], ["cfr_shift", "surge"])
 
 
 if __name__ == "__main__":

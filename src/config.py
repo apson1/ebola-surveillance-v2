@@ -13,6 +13,11 @@ load_dotenv()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+# ADK / google-genai read GOOGLE_API_KEY and GOOGLE_GENAI_USE_VERTEXAI. Alias from the
+# existing GEMINI_API_KEY so .env files keep working under the ADK refactor.
+os.environ.setdefault("GOOGLE_API_KEY", GEMINI_API_KEY or "")
+os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "FALSE")
+
 # Surge Detector Thresholds
 SURGE_MIN_DAILY_NEW = 10.0
 SURGE_MIN_PCT_GROWTH = 0.5
