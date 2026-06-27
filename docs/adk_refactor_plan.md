@@ -334,3 +334,26 @@ preserved verbatim, and is unit-tested (`test_llm_guard_tampered_ids` → `apply
 - **The directory is not a git repository.** Branch isolation requires `git init` first, with a
   `.gitignore` excluding `venv/`, `__pycache__/`, `*.pyc`, and **`.env` (contains the API
   key)**. Reference state committed to `main`; the build proceeds on `feature/adk-refactor`.
+
+---
+
+## Implementation notes (as built, step 4)
+
+- **ADK pin:** `google-adk==2.3.0` (2.x major; the earlier 1.x framing was wrong). All planned
+  import paths verified.
+- **Ingestion design (final):** a deterministic **plain async seam** `_load_reports` in
+  `orchestrator.py` calls the MCP server via `MCPToolset` + a minimal
+  `InvocationContext`/`ToolContext` (probed working), parsing the MCP `CallToolResult`
+  (`content[0].text` JSON). It is NOT an in-pipeline agent — keeping ingestion deterministic
+  and outside the LLM flow (symmetric with the alert post-step, D2). The plain
+  `ingestion_pipeline` fallback and its log strings are preserved, so the T4 tests adapted by
+  patch-target rename only.
+- **Composition (final):** `run_scan_async` = ingestion seam -> signal `SequentialAgent`
+  (`run_signal_pipeline_async`) -> `draft_alert` post-step. The ADK SequentialAgent covers the
+  LLM-bearing core (detection -> ranking -> guard); ingestion and alert are deterministic seams
+  around it.
+- **Docs status:** because the orchestrator is now genuinely ADK, the Option-A reword of
+  Phase 5 / context.md §4 / SKILL.md §48 is **not** needed — those ADK claims are now accurate.
+- **Verification (step 4):** 22 tests pass; all five scenarios match the Option-A detector-set
+  baselines; A3 MCPToolset-vs-`ingestion_pipeline` parity PASS (see `walkthrough.md`). Exactly
+  one LLM call per scan.

@@ -1,97 +1,139 @@
-"""
-Orchestrator for the Ebola surveillance signal-detector agent.
-Wires together ingestion, signal, and alert layers.
-"""
+"""Orchestrator for the Ebola surveillance signal-detector agent (ADK).
 
+Flow: ingestion (ADK MCPToolset, with a logged plain fallback) -> signal_pipeline
+(ADK SequentialAgent: detection -> ranking -> guard) -> draft_alert (deterministic
+post-step, outside the agent/LLM flow).
+
+`run_scan_async` is the real entry point. `run_scan` is a sync wrapper that is safe to
+call from a plain script OR from inside a live event loop (e.g. a Kaggle notebook), where
+`asyncio.run` would otherwise raise.
+"""
 import asyncio
+import concurrent.futures
+import json
 import logging
 import os
 import sys
 from typing import Dict
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import StdioServerParameters
+from google.adk.tools.mcp_tool import MCPToolset, StdioConnectionParams
+from google.adk.tools.tool_context import ToolContext
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.sessions import InMemorySessionService
 
-from src.signal.signal_agent import run_signal_agent
+import src.config  # noqa: F401  — sets GOOGLE_API_KEY / GOOGLE_GENAI_USE_VERTEXAI aliases
+from src.ingestion.ingestion import ingestion_pipeline
+from src.signal.signal_pipeline import run_signal_pipeline_async
 from src.alert.alert_agent import draft_alert
 
-# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def _call_mcp_load_reports(history_path: str, incoming_path: str) -> Dict:
-    """Helper to run the MCP server and call load_reports tool."""
-    # Use current running python interpreter to run the module
-    python_exe = sys.executable
-    if not python_exe or not os.path.exists(python_exe):
-        python_exe = os.path.join(os.getcwd(), "venv", "Scripts", "python.exe")
-        
-    server_params = StdioServerParameters(
-        command=python_exe,
-        args=["-m", "src.ingestion.mcp_server"],
-        env=os.environ.copy()
-    )
-    
-    async with stdio_client(server_params) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            tool_result = await session.call_tool(
-                name="load_reports",
-                arguments={
-                    "history_path": history_path,
-                    "report_path": incoming_path
-                }
+
+def _coerce_mcp_result(raw) -> Dict:
+    """Normalize an MCP tool result into the ingestion_pipeline dict."""
+    if isinstance(raw, dict) and "prior_snapshot" in raw:
+        data = raw
+    elif isinstance(raw, dict) and raw.get("content"):
+        if raw.get("isError"):
+            raise RuntimeError(f"MCP load_reports returned an error result: {raw}")
+        data = json.loads(raw["content"][0]["text"])
+    elif isinstance(raw, str):
+        data = json.loads(raw)
+    else:
+        raise RuntimeError(f"Unexpected MCP result shape: {type(raw)!r}")
+    if "prior_snapshot" not in data or "incoming" not in data:
+        raise RuntimeError("MCP result missing prior_snapshot/incoming")
+    return data
+
+
+async def _load_reports_via_mcptoolset(history_path: str, report_path: str) -> Dict:
+    """Call the load_reports MCP tool through the ADK MCPToolset. Raises on any failure
+    so the caller can fall back."""
+    toolset = MCPToolset(
+        connection_params=StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command=sys.executable,
+                args=["-m", "src.ingestion.mcp_server"],
+                env=dict(os.environ),
             )
-            import json
-            return json.loads(tool_result.content[0].text)
+        )
+    )
+    try:
+        tools = await toolset.get_tools()
+        load_tool = next(t for t in tools if t.name == "load_reports")
+
+        session_service = InMemorySessionService()
+        session = await session_service.create_session(app_name="ingest", user_id="ingest")
+        ictx = InvocationContext(
+            session_service=session_service,
+            invocation_id="ingest",
+            session=session,
+            agent=None,
+        )
+        raw = await load_tool.run_async(
+            args={"history_path": history_path, "report_path": report_path},
+            tool_context=ToolContext(ictx),
+        )
+        return _coerce_mcp_result(raw)
+    finally:
+        await toolset.close()
+
+
+async def _load_reports(history_path: str, report_path: str) -> Dict:
+    """Ingestion seam: ADK MCPToolset first, plain ingestion_pipeline on any failure.
+    Returns {prior_snapshot, incoming, source}; logs which path ran."""
+    try:
+        data = await _load_reports_via_mcptoolset(history_path, report_path)
+        logger.info("Successfully loaded reports via Ingestion MCP server (MCPToolset).")
+        source = "mcp"
+    except Exception as e:  # noqa: BLE001 — any MCP failure must degrade cleanly
+        logger.warning(
+            "MCP ingestion via MCPToolset unavailable or failed: %s. "
+            "Falling back to plain ingestion_pipeline.",
+            e,
+        )
+        data = ingestion_pipeline(history_path, report_path)
+        logger.info("Successfully loaded reports via plain ingestion_pipeline fallback.")
+        source = "plain"
+    return {"prior_snapshot": data["prior_snapshot"], "incoming": data["incoming"], "source": source}
+
+
+async def run_scan_async(incoming_path: str, history_path: str = "data/history.csv") -> Dict:
+    """Real entry point. ingestion -> signal_pipeline -> draft_alert."""
+    logger.info("Loading reports (incoming=%s)...", incoming_path)
+    loaded = await _load_reports(history_path, incoming_path)
+
+    logger.info("Invoking signal pipeline (detection -> ranking -> guard)...")
+    signal_result = await run_signal_pipeline_async(loaded["prior_snapshot"], loaded["incoming"])
+    ranked_flags = signal_result.get("flags", [])
+    reasoning = signal_result.get("reasoning", "")
+
+    # Reasoning is logged for debugging only; it is NEVER passed into the human-facing brief.
+    logger.info("Signal reasoning (logged, not rendered):\n%s", reasoning)
+
+    logger.info("Drafting alert brief...")
+    alert_text = draft_alert(ranked_flags)
+
+    return {"status": "success", "alert": alert_text, "flags": ranked_flags}
 
 
 def run_scan(incoming_path: str, history_path: str = "data/history.csv") -> Dict:
+    """Sync wrapper around run_scan_async.
+
+    - No running loop (plain script): use asyncio.run.
+    - Running loop (e.g. Kaggle notebook): asyncio.run would raise, so offload to a worker
+      thread with its own loop and block on the result. Notebook users may instead
+      `await run_scan_async(...)` directly.
     """
-    Main orchestrator entry point:
-    1. Loads prior and incoming data (MCP with plain fallback).
-    2. Runs signal agent to detect and rank anomalies.
-    3. Drafts human brief using alert agent.
-    4. Logs model reasoning and returns the finished brief and flags.
-    """
-    ingested_data = None
-    
-    # 1. Prefer Ingestion MCP Server tool
     try:
-        logger.info("Attempting to load reports using Ingestion MCP server...")
-        ingested_data = asyncio.run(_call_mcp_load_reports(history_path, incoming_path))
-        logger.info("Successfully loaded reports via Ingestion MCP server.")
-    except Exception as e:
-        logger.warning(
-            f"MCP server loading was unavailable or failed: {e}. "
-            "Falling back to plain ingestion_pipeline function..."
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(run_scan_async(incoming_path, history_path))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            lambda: asyncio.run(run_scan_async(incoming_path, history_path))
         )
-        
-    # Fallback to plain ingestion function
-    if ingested_data is None:
-        from src.ingestion.ingestion import ingestion_pipeline
-        ingested_data = ingestion_pipeline(history_path, incoming_path)
-        logger.info("Successfully loaded reports via plain ingestion_pipeline fallback.")
-        
-    prior_snapshot = ingested_data.get("prior_snapshot", [])
-    incoming = ingested_data.get("incoming", [])
-    
-    # 2. Run signal agent
-    logger.info("Invoking signal agent...")
-    signal_result = run_signal_agent(prior_snapshot, incoming)
-    
-    ranked_flags = signal_result.get("flags", [])
-    reasoning = signal_result.get("reasoning", "")
-    
-    # 3. Log model reasoning separately at INFO level
-    logger.info(f"Signal Agent Reasoning (debugging context):\n{reasoning}")
-    
-    # 4. Draft alert brief (reasoning is logged but never passed to human brief)
-    logger.info("Drafting alert brief...")
-    alert_text = draft_alert(ranked_flags)
-    
-    return {
-        "status": "success",
-        "alert": alert_text,
-        "flags": ranked_flags
-    }
+        return future.result()

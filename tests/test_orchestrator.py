@@ -1,11 +1,12 @@
+import asyncio
 import unittest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, AsyncMock
 
-from src.orchestrator import run_scan
+from src.orchestrator import run_scan, run_scan_async
 
 
 def _new_zone_flag(zone="Komanda"):
-    """A deterministic new_zone flag for stubbing run_signal_agent."""
+    """A deterministic new_zone flag for stubbing run_signal_pipeline_async."""
     return {
         "detector": "new_zone",
         "health_zone": zone,
@@ -16,11 +17,29 @@ def _new_zone_flag(zone="Komanda"):
     }
 
 
+def _cfr_flag(zone="Beni"):
+    """A fully-formed cfr_shift flag (draft_alert renders its cfr_* numbers)."""
+    return {
+        "detector": "cfr_shift",
+        "health_zone": zone,
+        "province": "North Kivu",
+        "confirmed_prior": 40,
+        "deaths_prior": 10,
+        "cfr_prior": 0.25,
+        "confirmed_incoming": 50,
+        "deaths_incoming": 25,
+        "cfr_incoming": 0.50,
+        "cfr_diff": 0.25,
+        "source_url": "http://example.org/cfr",
+        "report_date": "2026-06-21",
+    }
+
+
 class TestOrchestrator(unittest.TestCase):
     def test_run_scan_new_zone(self):
         """Phase 5 acceptance: run_scan on incoming_new_zone.json names the new zone.
 
-        This is the one intentionally end-to-end (live) test; the rest are hermetic.
+        The one intentionally end-to-end (live) test; the rest are hermetic.
         """
         result = run_scan(
             incoming_path="data/incoming/incoming_new_zone.json",
@@ -31,11 +50,10 @@ class TestOrchestrator(unittest.TestCase):
         self.assertTrue(len(result["flags"]) > 0)
 
     # ---- T3: model reasoning must never leak into the alert -----------------
-    @patch("src.orchestrator.run_signal_agent")
-    @patch("src.orchestrator._call_mcp_load_reports", new_callable=AsyncMock)
+    @patch("src.orchestrator.run_signal_pipeline_async", new_callable=AsyncMock)
+    @patch("src.orchestrator._load_reports_via_mcptoolset", new_callable=AsyncMock)
     def test_reasoning_excluded_from_alert(self, mock_mcp, mock_signal):
-        # Force the plain fallback so the test is hermetic (no MCP subprocess).
-        mock_mcp.side_effect = RuntimeError("force fallback")
+        mock_mcp.side_effect = RuntimeError("force fallback")  # hermetic: plain ingestion
         token = "REASONING_SENTINEL_ZZZ"
         digits = "8675309"
         mock_signal.return_value = {
@@ -46,16 +64,14 @@ class TestOrchestrator(unittest.TestCase):
         result = run_scan("data/incoming/incoming_new_zone.json")
 
         self.assertEqual(result["status"], "success")
-        # The injected reasoning token and digits must appear nowhere in the alert...
         self.assertNotIn(token, result["alert"])
         self.assertNotIn(digits, result["alert"])
-        # ...nor anywhere in the returned structure.
         self.assertNotIn(token, str(result))
         self.assertNotIn(digits, str(result))
 
-    # ---- T4: MCP path is tried, with a clean and logged fallback ------------
-    @patch("src.orchestrator.run_signal_agent")
-    @patch("src.orchestrator._call_mcp_load_reports", new_callable=AsyncMock)
+    # ---- T4: MCP path tried, with a clean and logged fallback ---------------
+    @patch("src.orchestrator.run_signal_pipeline_async", new_callable=AsyncMock)
+    @patch("src.orchestrator._load_reports_via_mcptoolset", new_callable=AsyncMock)
     def test_mcp_failure_falls_back_to_plain(self, mock_mcp, mock_signal):
         mock_mcp.side_effect = RuntimeError("MCP unavailable")
         mock_signal.return_value = {
@@ -70,13 +86,12 @@ class TestOrchestrator(unittest.TestCase):
         self.assertIn("Komanda", result["alert"])
         log = "\n".join(cm.output)
         self.assertIn("plain ingestion_pipeline fallback", log)
-        self.assertNotIn("Successfully loaded reports via Ingestion MCP server.", log)
+        self.assertNotIn("Successfully loaded reports via Ingestion MCP server", log)
 
-    @patch("src.orchestrator.run_signal_agent")
-    @patch("src.orchestrator._call_mcp_load_reports", new_callable=AsyncMock)
+    @patch("src.orchestrator.run_signal_pipeline_async", new_callable=AsyncMock)
+    @patch("src.orchestrator._load_reports_via_mcptoolset", new_callable=AsyncMock)
     def test_mcp_success_uses_mcp_path(self, mock_mcp, mock_signal):
         mock_mcp.return_value = {
-            "status": "success",
             "prior_snapshot": [],
             "incoming": [{"health_zone": "Komanda"}],
         }
@@ -91,34 +106,48 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertIn("Komanda", result["alert"])
         log = "\n".join(cm.output)
-        self.assertIn("Successfully loaded reports via Ingestion MCP server.", log)
+        self.assertIn("Successfully loaded reports via Ingestion MCP server", log)
         self.assertNotIn("plain ingestion_pipeline fallback", log)
         mock_mcp.assert_awaited_once()
 
-    # ---- T2: deterministic fallback ranking for the multi_signal scenario ---
-    @patch("src.signal.signal_agent.genai.Client")
-    @patch("src.orchestrator._call_mcp_load_reports", new_callable=AsyncMock)
-    def test_multi_signal_fallback_top_signal(self, mock_mcp, mock_client_class):
-        # Force plain ingestion so the real detectors run on the real scenario file.
+    # ---- T2 (adapted): headline matches the top ranked flag, no live LLM ----
+    @patch("src.orchestrator.run_signal_pipeline_async", new_callable=AsyncMock)
+    @patch("src.orchestrator._load_reports_via_mcptoolset", new_callable=AsyncMock)
+    def test_headline_matches_top_ranked_flag(self, mock_mcp, mock_signal):
         mock_mcp.side_effect = RuntimeError("force fallback")
-        # Stub the LLM to return a non-permutation of the 4 flag ids, so the LLM guard
-        # fails and the deterministic priority ordering activates. No live LLM is used.
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_response = MagicMock()
-        mock_response.text = '{"order": [0], "reasoning": "stubbed non-permutation"}'
-        mock_client.models.generate_content.return_value = mock_response
-
+        mock_signal.return_value = {
+            "status": "success",
+            "flags": [_cfr_flag("Beni"), _new_zone_flag("Komanda")],
+            "reasoning": "",
+        }
         result = run_scan("data/incoming/incoming_multi_signal.json")
 
-        self.assertEqual(result["status"], "success")
-        self.assertEqual(len(result["flags"]), 4)
-        # Fallback priority: cfr_shift > surge > new_zone > stale_or_missing.
         top = result["flags"][0]
-        self.assertEqual(top["detector"], "cfr_shift")
         headline = result["alert"].split("\n")[0]
-        self.assertIn(top["health_zone"], headline)   # headline matches the top flag
-        self.assertIn("Case Fatality Ratio", headline)
+        self.assertIn(top["health_zone"], headline)       # headline reflects flags[0]
+        self.assertIn("Case Fatality Ratio", headline)    # cfr_shift headline
+
+    # ---- A1: sync run_scan works from inside a running event loop -----------
+    @patch("src.orchestrator.run_signal_pipeline_async", new_callable=AsyncMock)
+    @patch("src.orchestrator._load_reports_via_mcptoolset", new_callable=AsyncMock)
+    def test_run_scan_inside_running_loop(self, mock_mcp, mock_signal):
+        mock_mcp.side_effect = RuntimeError("force fallback")
+        mock_signal.return_value = {
+            "status": "success",
+            "flags": [_new_zone_flag("Komanda")],
+            "reasoning": "",
+        }
+
+        async def driver():
+            # We are now inside a running event loop (Kaggle-like). Sync run_scan must NOT
+            # raise (it thread-offloads); run_scan_async must also work via await.
+            sync_result = run_scan("data/incoming/incoming_new_zone.json")
+            async_result = await run_scan_async("data/incoming/incoming_new_zone.json")
+            return sync_result, async_result
+
+        sync_result, async_result = asyncio.run(driver())
+        self.assertIn("Komanda", sync_result["alert"])
+        self.assertIn("Komanda", async_result["alert"])
 
 
 if __name__ == "__main__":
