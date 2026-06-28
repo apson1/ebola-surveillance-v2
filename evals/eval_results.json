@@ -1,0 +1,144 @@
+{
+  "summary": {
+    "passed": 5,
+    "total": 5,
+    "all_passed": true
+  },
+  "results": [
+    {
+      "scenario": "new_zone",
+      "report_path": "data/incoming/incoming_new_zone.json",
+      "passed": true,
+      "expected": [
+        {
+          "detector": "new_zone",
+          "health_zone": "Komanda",
+          "type": null
+        }
+      ],
+      "actual": [
+        {
+          "detector": "new_zone",
+          "health_zone": "Komanda",
+          "type": null
+        }
+      ]
+    },
+    {
+      "scenario": "spike",
+      "report_path": "data/incoming/incoming_spike.json",
+      "passed": true,
+      "expected": [
+        {
+          "detector": "surge",
+          "health_zone": "Mongbwalu",
+          "type": null
+        }
+      ],
+      "actual": [
+        {
+          "detector": "surge",
+          "health_zone": "Mongbwalu",
+          "type": null
+        }
+      ]
+    },
+    {
+      "scenario": "data_gap",
+      "report_path": "data/incoming/incoming_data_gap.json",
+      "passed": true,
+      "expected": [
+        {
+          "detector": "stale_or_missing",
+          "health_zone": "Nyankunde",
+          "type": "missing_zone"
+        },
+        {
+          "detector": "stale_or_missing",
+          "health_zone": "Rwampara",
+          "type": "null_field"
+        }
+      ],
+      "actual": [
+        {
+          "detector": "stale_or_missing",
+          "health_zone": "Nyankunde",
+          "type": "missing_zone"
+        },
+        {
+          "detector": "stale_or_missing",
+          "health_zone": "Rwampara",
+          "type": "null_field"
+        }
+      ]
+    },
+    {
+      "scenario": "cfr_shift",
+      "report_path": "data/incoming/incoming_cfr_shift.json",
+      "passed": true,
+      "expected": [
+        {
+          "detector": "cfr_shift",
+          "health_zone": "Beni",
+          "type": null
+        }
+      ],
+      "actual": [
+        {
+          "detector": "cfr_shift",
+          "health_zone": "Beni",
+          "type": null
+        }
+      ]
+    },
+    {
+      "scenario": "multi_signal",
+      "report_path": "data/incoming/incoming_multi_signal.json",
+      "passed": true,
+      "expected": [
+        {
+          "detector": "cfr_shift",
+          "health_zone": "Beni",
+          "type": null
+        },
+        {
+          "detector": "new_zone",
+          "health_zone": "Komanda",
+          "type": null
+        },
+        {
+          "detector": "stale_or_missing",
+          "health_zone": "Nyankunde",
+          "type": "missing_zone"
+        },
+        {
+          "detector": "surge",
+          "health_zone": "Bunia",
+          "type": null
+        }
+      ],
+      "actual": [
+        {
+          "detector": "cfr_shift",
+          "health_zone": "Beni",
+          "type": null
+        },
+        {
+          "detector": "new_zone",
+          "health_zone": "Komanda",
+          "type": null
+        },
+        {
+          "detector": "stale_or_missing",
+          "health_zone": "Nyankunde",
+          "type": "missing_zone"
+        },
+        {
+          "detector": "surge",
+          "health_zone": "Bunia",
+          "type": null
+        }
+      ]
+    }
+  ]
+}

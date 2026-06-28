@@ -150,8 +150,12 @@ Acceptance criteria:
 Goal: prove the detectors fire correctly.
 
 Tasks:
-- Build `evals/eval_set.json`: each entry pairs an input report with its expected flags.
-- Write a runner that scores actual flags against expected and reports pass/fail.
+- `evals/eval_set.json`: each entry pairs an input report with its expected flags
+  (detector, health_zone, and the sub-type for stale_or_missing).
+- `evals/run_evals.py`: a hermetic runner — ingestion + run_all_detectors only (no live LLM,
+  detection-stage-direct), exact-set match on (detector, health_zone, type), fully
+  reproducible. Writes a structured artifact to `evals/eval_results.json`;
+  `tests/test_evals.py` asserts all cases pass.
 
 Acceptance criteria:
 - All eval cases pass, or failures are understood and documented.
