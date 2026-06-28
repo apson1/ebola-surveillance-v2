@@ -6,6 +6,7 @@ inspect the state it writes. The RankingAgent instruction is checked as a static
 import asyncio
 import json
 import unittest
+from unittest.mock import patch
 
 from google.adk.runners import InMemoryRunner
 from google.genai import types
@@ -15,6 +16,7 @@ from src.signal.signal_pipeline import (
     DetectionAgent,
     RANKING_INSTRUCTION,
     build_ranking_agent,
+    run_signal_pipeline_async,
 )
 
 # Any numeric field a detector may attach to a full flag. None of these may appear in the
@@ -70,6 +72,19 @@ class TestSignalPipelineProjection(unittest.TestCase):
         # '{flags}', not the substring 'flags' (which occurs inside flags_for_llm_json).
         self.assertNotIn("{flags}", instr)
         self.assertEqual(build_ranking_agent().instruction, instr)
+
+
+class TestSignalPipelineResilience(unittest.TestCase):
+    @patch("src.signal.signal_pipeline.InMemoryRunner", side_effect=RuntimeError("LLM down"))
+    def test_ranking_failure_degrades_to_deterministic(self, _mock_runner):
+        """When the ranking model/runner errors, the scan still completes via deterministic
+        priority ordering instead of crashing (no live LLM in this test)."""
+        ing = ingestion_pipeline("data/history.csv", "data/incoming/incoming_multi_signal.json")
+        result = asyncio.run(run_signal_pipeline_async(ing["prior_snapshot"], ing["incoming"]))
+        self.assertEqual(result["status"], "success")
+        self.assertTrue(result["used_fallback"])
+        self.assertEqual(len(result["flags"]), 4)
+        self.assertEqual(result["flags"][0]["detector"], "cfr_shift")  # fallback priority top
 
 
 if __name__ == "__main__":

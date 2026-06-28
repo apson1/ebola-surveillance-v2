@@ -22,11 +22,21 @@ from pydantic import BaseModel
 
 from src.config import GEMINI_MODEL
 from src.signal.detectors import run_all_detectors
-from src.signal.ranking import RankingDecision, apply_rank_guard, FALLBACK_REASONING
+from src.signal.ranking import (
+    RankingDecision,
+    apply_rank_guard,
+    fallback_rank_flags,
+    FALLBACK_REASONING,
+)
 
 logger = logging.getLogger(__name__)
 
 APP_NAME = "ebola_signal"
+
+LLM_ERROR_FALLBACK_REASONING = (
+    "[LLM Error Fallback] The ranking model was unavailable (e.g. quota or network); reverted "
+    "to deterministic priority ordering: cfr_shift > surge > new_zone > stale_or_missing."
+)
 
 # Single brace placeholder ({flags_for_llm_json}); no bare {flags} token (numbers-bearing key).
 RANKING_INSTRUCTION = (
@@ -128,28 +138,53 @@ def build_signal_pipeline() -> SequentialAgent:
     )
 
 
-async def run_signal_pipeline_async(prior_snapshot: List[Dict], incoming: List[Dict]) -> Dict:
-    """Drive the signal pipeline to completion and return {status, flags, reasoning,
-    used_fallback}. Mirrors the legacy run_signal_agent return shape (plus used_fallback)."""
-    runner = InMemoryRunner(agent=build_signal_pipeline(), app_name=APP_NAME)
-    session = await runner.session_service.create_session(
-        app_name=APP_NAME,
-        user_id="signal_user",
-        state={"prior_snapshot": prior_snapshot, "incoming": incoming},
-    )
-    content = types.Content(role="user", parts=[types.Part(text="run scan")])
-    async for _ in runner.run_async(
-        user_id="signal_user", session_id=session.id, new_message=content
-    ):
-        pass
-
-    final = await runner.session_service.get_session(
-        app_name=APP_NAME, user_id="signal_user", session_id=session.id
-    )
-    st = final.state
+def _deterministic_fallback(prior_snapshot: List[Dict], incoming: List[Dict]) -> Dict:
+    """Detection + deterministic priority ordering, no LLM. Used when the ranking model
+    errors (quota/network) so a scan still completes."""
+    flags = run_all_detectors(pd.DataFrame(incoming), pd.DataFrame(prior_snapshot))
     return {
         "status": "success",
-        "flags": st.get("ranked_flags", []),
-        "reasoning": st.get("reasoning", ""),
-        "used_fallback": st.get("used_fallback"),
+        "flags": fallback_rank_flags(flags),
+        "reasoning": LLM_ERROR_FALLBACK_REASONING,
+        "used_fallback": True,
     }
+
+
+async def run_signal_pipeline_async(prior_snapshot: List[Dict], incoming: List[Dict]) -> Dict:
+    """Drive the signal pipeline to completion and return {status, flags, reasoning,
+    used_fallback}. Mirrors the legacy run_signal_agent return shape (plus used_fallback).
+
+    If the ranking model errors (quota/network), the whole scan degrades to deterministic
+    priority ordering rather than crashing — the detectors already ran, so the signal is not
+    lost. (The GuardAgent only handles an invalid permutation; this handles an API failure.)
+    """
+    try:
+        runner = InMemoryRunner(agent=build_signal_pipeline(), app_name=APP_NAME)
+        session = await runner.session_service.create_session(
+            app_name=APP_NAME,
+            user_id="signal_user",
+            state={"prior_snapshot": prior_snapshot, "incoming": incoming},
+        )
+        content = types.Content(role="user", parts=[types.Part(text="run scan")])
+        async for _ in runner.run_async(
+            user_id="signal_user", session_id=session.id, new_message=content
+        ):
+            pass
+
+        final = await runner.session_service.get_session(
+            app_name=APP_NAME, user_id="signal_user", session_id=session.id
+        )
+        ranked = final.state.get("ranked_flags")
+        if ranked is None:
+            raise RuntimeError("signal pipeline produced no ranked_flags")
+        return {
+            "status": "success",
+            "flags": ranked,
+            "reasoning": final.state.get("reasoning", ""),
+            "used_fallback": bool(final.state.get("used_fallback")),
+        }
+    except Exception as e:  # noqa: BLE001 — any model/runtime failure degrades gracefully
+        logger.warning(
+            "Signal pipeline ranking failed (%s); using deterministic fallback ordering.", e
+        )
+        return _deterministic_fallback(prior_snapshot, incoming)
