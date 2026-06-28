@@ -1,0 +1,19 @@
+%% Render: npx -y @mermaid-js/mermaid-cli -i architecture.mmd -o architecture.png -b white
+%% If Chrome isn't auto-detected, add: -p puppeteer.json  with {"executablePath": "<path/to/chrome>"}
+flowchart TD
+    A[Situation reports<br/>data/incoming/*.json] --> B[run_scan / run_scan_async]
+    H[(history.csv<br/>seed + memory)] --> B
+    B --> C{Ingestion seam}
+    C -->|ADK MCPToolset| D[MCP server<br/>load_reports]
+    C -.plain fallback.-> E[ingestion_pipeline]
+    D --> F
+    E --> F[prior snapshot + incoming records]
+    F --> G[ADK SequentialAgent: signal_pipeline]
+    subgraph G [signal_pipeline]
+        G1[DetectionAgent<br/>4 rule-based detectors] --> G2[RankingAgent<br/>LLM ranks ids only]
+        G2 --> G3[GuardAgent<br/>id-permutation guard]
+    end
+    G --> I[draft_alert<br/>deterministic template]
+    I --> J[Guardrail layer<br/>traceability / fabricated-zone / banned-language]
+    J --> K[Human coordinator]
+    B -. persist=True .-> H
