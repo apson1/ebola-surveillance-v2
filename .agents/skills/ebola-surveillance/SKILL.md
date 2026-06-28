@@ -43,7 +43,10 @@ rename, or reorder columns without updating `docs/context.md` and every reader.
 - `src/ingestion/` plain loader function plus an MCP server exposing it. Keep both working.
 - `src/signal/` the four detectors and the ranking agent.
 - `src/alert/` the alert agent and its fixed output template.
-- `src/guardrails/` validation that runs before any output leaves.
+- `src/guardrails/` validation that runs before any output leaves. Numbers are traced to the
+  ranked flags; unsourced numbers and fabricated zones fail closed (prose withheld, sourced
+  signals still surfaced). Clinical, treatment, or forecasting language is blocked and flagged
+  by default (configurable to strip), scanning prose only and whitelisting operational terms.
 - `src/memory/` the history store.
 - `src/config.py` thresholds and banned output patterns. All tunables live here.
 - `src/orchestrator.py` the ADK wiring and the `run_scan(incoming_path)` entry point.

@@ -102,10 +102,14 @@ Acceptance criteria:
 Goal: validation that runs before any output leaves.
 
 Tasks:
-- Validate every number in the alert against the source records. Block unsourced numbers.
-- Strip any clinical or treatment claim.
-- Append the human-escalation line.
-- Add a configurable list of banned output patterns (diagnosis language, individual advice).
+- Validate every number in the alert against the ranked flags (each flag carries its
+  report_date + source_url). Block (fail-closed) unsourced numbers and fabricated zones; the
+  withheld brief still surfaces the underlying sourced signals so the signal is not discarded.
+- Block and flag clinical, treatment, or forecasting language by default (configurable to
+  strip). Scan only the human-readable prose — never source URLs — and whitelist operational
+  terms (e.g. Ebola Treatment Center/Unit).
+- Ensure the human-escalation line is present (idempotent — draft_alert already appends it).
+- Keep the banned output patterns and the whitelist configurable in `src/config.py`.
 
 Acceptance criteria:
 - Three crafted bad outputs are caught: an unsourced number, a diagnosis sentence,

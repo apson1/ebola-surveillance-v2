@@ -26,6 +26,7 @@ import src.config  # noqa: F401  — sets GOOGLE_API_KEY / GOOGLE_GENAI_USE_VERT
 from src.ingestion.ingestion import ingestion_pipeline
 from src.signal.signal_pipeline import run_signal_pipeline_async
 from src.alert.alert_agent import draft_alert
+from src.guardrails.guardrails import enforce_guardrails
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -116,7 +117,23 @@ async def run_scan_async(incoming_path: str, history_path: str = "data/history.c
     logger.info("Drafting alert brief...")
     alert_text = draft_alert(ranked_flags)
 
-    return {"status": "success", "alert": alert_text, "flags": ranked_flags}
+    # Guardrail layer: last check before anything leaves. Fail-closed on integrity failures.
+    guard = enforce_guardrails(alert_text, ranked_flags)
+    if guard.blocked:
+        logger.warning("Guardrail BLOCKED the brief: %s", guard.violations)
+    elif guard.violations:
+        logger.warning("Guardrail flagged (non-blocking): %s", guard.violations)
+
+    return {
+        "status": "success",
+        "alert": guard.alert,
+        "flags": ranked_flags,
+        "guardrail": {
+            "passed": guard.passed,
+            "blocked": guard.blocked,
+            "violations": guard.violations,
+        },
+    }
 
 
 def run_scan(incoming_path: str, history_path: str = "data/history.csv") -> Dict:

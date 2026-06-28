@@ -5,6 +5,16 @@ Produces a structured alert brief for a human coordinator using a fixed template
 
 from typing import Dict, List
 
+from src.formatting import fmt_float1, fmt_pct1
+
+# Shared with the guardrail layer, which both ensures this line is present and reuses it in
+# its fail-closed placeholder. Keep it as the single source of the escalation wording.
+ESCALATION_LINE = (
+    "ESCALATION: Human coordinator must verify the flagged signal(s) and cited numbers against the source reports "
+    "and decide. This tool is for decision support only and does not make autonomous clinical or operational decisions."
+)
+
+
 def draft_alert(ranked_flags: List[Dict]) -> str:
     """
     Drafts an alert brief for a human coordinator.
@@ -16,11 +26,7 @@ def draft_alert(ranked_flags: List[Dict]) -> str:
         headline = "ALERT: No active surveillance signals flagged."
         signals_section = "No active signals."
         note_text = "CONFIDENCE AND DATA-QUALITY NOTE: No signals flagged. All counts are as-reported and unverified."
-        escalation = (
-            "ESCALATION: Human coordinator must verify the flagged signal(s) and cited numbers against the source reports "
-            "and decide. This tool is for decision support only and does not make autonomous clinical or operational decisions."
-        )
-        return f"{headline}\n\n{signals_section}\n\n{note_text}\n\n{escalation}"
+        return f"{headline}\n\n{signals_section}\n\n{note_text}\n\n{ESCALATION_LINE}"
     
     # 1. Headline: one line naming the single highest-ranked signal and its zone.
     highest = ranked_flags[0]
@@ -60,13 +66,13 @@ def draft_alert(ranked_flags: List[Dict]) -> str:
         elif det == "surge":
             line = (
                 f"- [surge] {hz} ({prov}): confirmed cases {f.get('confirmed_prior')} -> {f.get('confirmed_incoming')}, "
-                f"daily_new={f.get('daily_new'):.1f}, pct_growth={f.get('pct_growth')*100:.1f}% "
+                f"daily_new={fmt_float1(f.get('daily_new'))}, pct_growth={fmt_pct1(f.get('pct_growth'))}% "
                 f"(source: {source}, report_date: {rep_date})"
             )
         elif det == "cfr_shift":
             line = (
-                f"- [cfr_shift] {hz} ({prov}): CFR {f.get('cfr_prior')*100:.1f}% -> {f.get('cfr_incoming')*100:.1f}% "
-                f"(shift: {f.get('cfr_diff')*100:.1f}%) "
+                f"- [cfr_shift] {hz} ({prov}): CFR {fmt_pct1(f.get('cfr_prior'))}% -> {fmt_pct1(f.get('cfr_incoming'))}% "
+                f"(shift: {fmt_pct1(f.get('cfr_diff'))}%) "
                 f"(source: {source}, report_date: {rep_date})"
             )
         elif det == "stale_or_missing":
@@ -108,9 +114,4 @@ def draft_alert(ranked_flags: List[Dict]) -> str:
     # for the orchestrator to log.
 
     # 4. Escalation line: a fixed sentence directing the human to verify and decide.
-    escalation = (
-        "ESCALATION: Human coordinator must verify the flagged signal(s) and cited numbers against the source reports "
-        "and decide. This tool is for decision support only and does not make autonomous clinical or operational decisions."
-    )
-    
-    return f"{headline}\n\n{signals_section}\n\n{note_text}\n\n{escalation}"
+    return f"{headline}\n\n{signals_section}\n\n{note_text}\n\n{ESCALATION_LINE}"

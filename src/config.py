@@ -28,11 +28,27 @@ CFR_SHIFT_THRESHOLD = 0.05
 CFR_HIGH_THRESHOLD = 0.30
 CFR_MIN_CONFIRMED = 20
 
-# Banned Output Patterns (Phase 6 placeholder to keep structure aligned)
+# Guardrail layer (Phase 6).
+# Clinical / treatment / forecasting language. Scanned ONLY on human-readable prose (URLs
+# stripped) with operational terms whitelisted first. Default action: block + flag.
+GUARDRAIL_BANNED_MODE = "block"  # "block" (default) or "strip"
+
 BANNED_PATTERNS = [
-    r"\bdiagnose\b",
-    r"\bdiagnosis\b",
-    r"\btreatment\b",
-    r"\bprescribe\b",
-    r"\bcure\b",
+    r"\bdiagnos\w*",      # diagnose, diagnosed, diagnosis, diagnosing
+    r"\btreatments?\b",   # treatment(s) — whitelisted operational terms removed first
+    r"\bprescrib\w*",     # prescribe, prescribed, prescription
+    r"\bcure[ds]?\b",     # cure, cured, cures
+    r"\bforecast\w*",     # epidemic forecasting
+    r"\bpredict\w*",      # prediction language
+]
+
+# Operational terms that legitimately contain a banned word; removed before the scan so a
+# named "Ebola Treatment Center" does not trip the treatment ban.
+GUARDRAIL_WHITELIST = [
+    "ebola treatment center",
+    "ebola treatment centre",
+    "ebola treatment unit",
+    "treatment center",
+    "treatment centre",
+    "treatment unit",
 ]
