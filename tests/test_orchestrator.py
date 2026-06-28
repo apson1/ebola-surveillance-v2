@@ -4,6 +4,16 @@ from unittest.mock import patch, AsyncMock
 
 from src.orchestrator import run_scan, run_scan_async
 
+# Indicators that the live LLM was unavailable (quota/rate/transient) rather than a real bug.
+_LLM_UNAVAILABLE = ("RESOURCE_EXHAUSTED", "429", "503", "UNAVAILABLE", "quota",
+                    "ConnectError", "ConnectionError", "Timeout", "Deadline")
+
+
+def _skip_if_llm_unavailable(test, exc):
+    msg = str(exc)
+    if any(k in msg for k in _LLM_UNAVAILABLE):
+        test.skipTest(f"Gemini unavailable/quota-limited: {msg[:140]}")
+
 
 def _new_zone_flag(zone="Komanda"):
     """A deterministic new_zone flag for stubbing run_signal_pipeline_async."""
@@ -39,12 +49,17 @@ class TestOrchestrator(unittest.TestCase):
     def test_run_scan_new_zone(self):
         """Phase 5 acceptance: run_scan on incoming_new_zone.json names the new zone.
 
-        The one intentionally end-to-end (live) test; the rest are hermetic.
+        The one intentionally end-to-end (live) test; the rest are hermetic. It skips (does
+        not fail) when Gemini is rate-limited or unavailable.
         """
-        result = run_scan(
-            incoming_path="data/incoming/incoming_new_zone.json",
-            history_path="data/history.csv",
-        )
+        try:
+            result = run_scan(
+                incoming_path="data/incoming/incoming_new_zone.json",
+                history_path="data/history.csv",
+            )
+        except Exception as e:  # noqa: BLE001
+            _skip_if_llm_unavailable(self, e)
+            raise
         self.assertEqual(result["status"], "success")
         self.assertIn("Komanda", result["alert"])
         self.assertTrue(len(result["flags"]) > 0)

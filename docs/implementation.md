@@ -121,7 +121,11 @@ Acceptance criteria:
 Goal: persistence so scans compare against accumulated history.
 
 Tasks:
-- After a scan, append the incoming report to the stored history.
+- After a scan, append the incoming report's clean rows to the stored history
+  (`src/memory/history_store.py::append_to_history`). Persistence is opt-in
+  (`run_scan(..., persist=True)`) so demo/test runs stay reproducible by default.
+- Skip incoming rows with a null count (history stays complete); upsert on
+  (date, province, health_zone, source_url) keep-last; atomic write (temp + os.replace).
 - The next scan reads the updated history automatically.
 
 Acceptance criteria:

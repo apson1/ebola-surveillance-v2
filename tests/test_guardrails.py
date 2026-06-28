@@ -108,8 +108,16 @@ class TestGuardrails(unittest.TestCase):
 
     # ---- live integration: the real pipeline output passes its own guardrail ----
     def test_run_scan_output_passes_guardrail(self):
+        """Live; skips (does not fail) when Gemini is rate-limited or unavailable."""
         from src.orchestrator import run_scan
-        result = run_scan("data/incoming/incoming_multi_signal.json")
+        try:
+            result = run_scan("data/incoming/incoming_multi_signal.json")
+        except Exception as e:  # noqa: BLE001
+            msg = str(e)
+            if any(k in msg for k in ("RESOURCE_EXHAUSTED", "429", "503", "UNAVAILABLE",
+                                      "quota", "ConnectError", "ConnectionError", "Timeout")):
+                self.skipTest(f"Gemini unavailable/quota-limited: {msg[:140]}")
+            raise
         self.assertTrue(result["guardrail"]["passed"])
         self.assertFalse(result["guardrail"]["blocked"])
         self.assertEqual(result["guardrail"]["violations"], [])
