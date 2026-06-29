@@ -106,7 +106,7 @@ data/             history.csv (seed) + incoming/incoming_*.json (5 scenarios)
 evals/            eval_set.json, run_evals.py, eval_results.json
 scripts/          smoke_adk, verify_scenarios, verify_step4, capture_baselines (python -m scripts.<name>)
 tests/            39 tests
-docs/             context.md, implementation.md, writeup.md, adk_refactor_plan.md
+docs/             context.md, implementation.md, writeup.md, images/
 walkthrough.md    verification evidence (5 scenarios + MCP parity)
 ```
 
