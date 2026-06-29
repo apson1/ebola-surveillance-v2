@@ -1,35 +1,26 @@
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-.vite/
-
-# Vercel
-.vercel/
-
-# Env / secrets
+# Secrets — never commit
 .env
 .env.*
 !.env.example
+*.key
 
-# Editor / OS
-.DS_Store
-*.local
-
-# Claude Code local config
-.claude/
-
-# Migration helper scripts
-*.cjs
-dev.log
-
-# Python (this project)
+# Python
 venv/
 .venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
-_scenario_check.py
 
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code local config
+.claude/
+
+# Local scratch / generated dumps (not part of the repo)
+repository_structure.txt
+_scenario_check.py

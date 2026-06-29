@@ -165,6 +165,6 @@ every number are deterministic. The eval runner scores that set, not the order.)
 
 See [README.md](../README.md) for setup and commands: `python -m evals.run_evals` (5/5),
 `python -m scripts.verify_scenarios` (five alerts end to end), and
-`python -m unittest discover -s tests` (38 tests). Durable rules: [context.md](context.md);
+`python -m unittest discover -s tests` (39 tests). Durable rules: [context.md](context.md);
 build plan and acceptance criteria: [implementation.md](implementation.md).
 ```
