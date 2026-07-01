@@ -57,6 +57,14 @@ python -c "from src.orchestrator import run_scan; print(run_scan('data/incoming/
 python -m scripts.verify_scenarios
 ```
 
+**Run the Streamlit Web UI**:
+
+```bash
+streamlit run app_streamlit.py
+```
+This opens the interactive browser UI at `http://localhost:8501`.
+
+
 **Run the detection eval set** (hermetic, no LLM) and write the results artifact:
 
 ```bash
