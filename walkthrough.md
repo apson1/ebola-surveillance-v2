@@ -1,51 +1,64 @@
-# walkthrough.md — ADK refactor verification (step 4)
+# Walkthrough — Streamlit UI Wrapper Implementation
 
-Full path exercised: **MCPToolset ingestion -> ADK signal_pipeline (detection -> ranking -> guard) -> deterministic draft_alert**.
+We have built a minimal interactive browser UI using Streamlit as a thin presentation layer around the existing Ebola surveillance agent pipeline. This UI lets users easily select scenarios, execute scans, review the structured alert briefs (or withheld notices), and inspect the raw signal payloads.
 
-## What changed (Option B: real ADK)
+The existing pipeline logic (`src/`), detectors, alert agents, and guardrails remain entirely untouched, and all 39 unittest cases pass successfully without modification. All work has been done on the `feature/streamlit-ui` branch.
 
-- **Signal stage is now an ADK `SequentialAgent`** (`src/signal/signal_pipeline.py`):
-  `DetectionAgent` (non-LLM BaseAgent; runs the four rule-based detectors, writes an
-  ids-only projection to state) -> `RankingAgent` (`LlmAgent`, `output_schema=RankingDecision`,
-  ranks ids only, never sees numbers) -> `GuardAgent` (applies the id-permutation guard).
-- **The id guard is extracted** to `src/signal/ranking.py` (`apply_rank_guard`) as the single
-  source of truth. It remains load-bearing: `output_schema` guarantees shape only, not a
-  valid permutation.
-- **Ingestion** is a deterministic seam (`src/orchestrator.py::_load_reports`) that calls the
-  existing MCP server through the ADK **`MCPToolset`**, with a logged fallback to the plain
-  `ingestion_pipeline`. The MCP server and detectors are unchanged.
-- **`draft_alert` is unchanged** and runs as a deterministic post-step outside the agent flow.
-- **Entry points:** `run_scan_async` is the real entry; `run_scan` is a sync wrapper that
-  thread-offloads when a live event loop is already running (Kaggle-safe).
-- **Removed:** the legacy `src/signal/signal_agent.py` (direct-genai ranking) — superseded by
-  the ADK pipeline, no longer imported anywhere.
-- **Exactly one LLM call per scan** (the RankingAgent); detection and alert are LLM-free.
+## Changes Made
 
-## Test suite
+1. **Dependency Addition**: Added `streamlit` to [requirements.txt](requirements.txt).
+2. **Streamlit UI Application**: Created [app_streamlit.py](app_streamlit.py):
+   - Set zinc-inspired theme configurations and standard responsive container styles.
+   - Built a scenario selector dropdown mapping names (`multi_signal`, `new_zone`, `spike`, `data_gap`, `cfr_shift`) to files in `data/incoming/`.
+   - Integrated a primary action button running `run_scan_async` inside a loading spinner.
+   - Rendered results: Alert brief headline, active signals with clickable source URLs, confidence notes, and the critical **Escalation Directive** in a highly visible red callout box.
+   - Handled the guardrail withheld state using a fallback layout that displays a safety warning along with the underlying signals and details of the guardrail violations.
+   - Added a "Simulate Guardrail Violation" toggle to allow coordinators to test the withheld display logic.
+   - Included a raw signals JSON viewer.
+3. **Documentation**: Appended startup and usage instructions to [README.md](README.md).
 
-`python -m unittest discover -s tests` -> **22 pass**. Adapted (not rewritten): the guard test
-now targets `apply_rank_guard`; the orchestrator tests target the new ingestion/signal seams
-(the `genai.Client` patch is gone, since ADK owns the LLM call). New: ids-only projection
-tests (A2) and a running-event-loop test (A1).
+---
 
-## Five scenarios (detector set vs Option-A baseline)
+## Verification Results
 
-| scenario | match | top signal (LLM-ranked) | detector set |
-|---|---|---|---|
-| new_zone | PASS | new_zone | ['new_zone'] |
-| spike | PASS | surge | ['surge'] |
-| data_gap | PASS | stale_or_missing | ['stale_or_missing'] |
-| cfr_shift | PASS | cfr_shift | ['cfr_shift'] |
-| multi_signal | PASS | cfr_shift | ['cfr_shift', 'new_zone', 'stale_or_missing', 'surge'] |
+### 1. Automated Test Suite (39/39 Passed)
+The full unittest suite was run to confirm zero regressions:
+```
+Ran 39 tests in 8.936s
 
-Detector sets are deterministic and match the baselines exactly; the top signal is the live LLM ranking (guard-validated permutation) and may vary.
+OK
+```
 
-## A3 — MCPToolset ingestion equals ingestion_pipeline (multi_signal)
+### 2. Five-Scenario UI Walkthrough
 
-- prior_snapshot rows: MCP=6, plain=6
-- incoming rows: MCP=6, plain=6
-- prior zone set (both): ['Beni', 'Bunia', 'Mongbwalu', 'Nyankunde', 'Oicha', 'Rwampara']
-- prior records identical (dates canonicalized): True
-- incoming records identical (dates canonicalized): True
+All scenarios have been manually exercised and verified through the browser:
+- **Scenario 1: Multi Signal (Default)**: Correctly loaded, showing a Case Fatality Ratio alert for Beni, multiple active signals, and the standard confidence and escalation notes.
+- **Scenario 2: New Zone**: Correctly loaded, showing an alert for a new transmission zone detected in Komanda (Ituri).
+- **Scenario 3: Spike**: Correctly loaded, showing a rapid confirmed case surge in Mongbwalu (Ituri).
+- **Scenario 4: Data Gap**: Correctly loaded, showing a missing report alert for Nyankunde (Ituri).
+- **Scenario 5: CFR Shift**: Correctly loaded, showing a significant rise in CFR in Beni (North Kivu).
+- **Simulated Guardrail Block**: With "Simulate Guardrail Violation" enabled, the alert prose is safely withheld. The UI displays the safety notice, the list of violations (e.g. `UNSOURCED NUMBER`), the underlying signals, and the escalation directive.
 
-**MCP parity: PASS** — the ADK MCPToolset path returns the same records as the plain function, so the MCP path is proven (not merely the fallback).
+---
+
+## Visual Demonstrations
+
+Here is a carousel of screenshots captured during browser verification of the scenarios and the simulated guardrail block:
+
+````carousel
+![Multi Signal (Scenario 1)](docs/images/streamlit/multi_signal_results.png)
+<!-- slide -->
+![New Zone (Scenario 2)](docs/images/streamlit/new_zone.png)
+<!-- slide -->
+![Spike (Scenario 3)](docs/images/streamlit/spike.png)
+<!-- slide -->
+![Data Gap (Scenario 4)](docs/images/streamlit/data_gap.png)
+<!-- slide -->
+![CFR Shift (Scenario 5)](docs/images/streamlit/cfr_shift.png)
+<!-- slide -->
+![Simulated Guardrail Block](docs/images/streamlit/guardrail_violation.png)
+````
+
+### Browser Interactive Session Video
+For a full review of the interactive testing session, view the recorded session:
+![Browser Verification Video](docs/images/streamlit/streamlit_render_check.webp)
