@@ -177,3 +177,31 @@ def fetch_recent_drc_ebola_reports(limit: int = 10) -> LiveSourceResult:
     # Cache successes (records returned) for 15 min; disabled/error/empty for 30s.
     _write_cache(limit, result, _SUCCESS_TTL if result.reports else _FAILURE_TTL)
     return result
+
+
+def fetch_report_body(report_id) -> str:
+    """Fetch a single ReliefWeb report's markdown body by its id (Phase 2 input).
+
+    Returns '' on any failure (appname unset, network/HTTP error, or no body). Never raises.
+    Uses the verified list endpoint with an id filter + fields.include=["body"].
+    """
+    if not RELIEFWEB_APPNAME:
+        logger.warning("fetch_report_body skipped: RELIEFWEB_APPNAME unset [report_id=%s]", report_id)
+        return ""
+    try:
+        resp = requests.post(
+            f"{RELIEFWEB_API_BASE}/reports",
+            params={"appname": RELIEFWEB_APPNAME},
+            json={"filter": {"field": "id", "value": report_id},
+                  "fields": {"include": ["body"]}, "limit": 1},
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data") or []
+        if not data:
+            logger.warning("fetch_report_body: no report found [report_id=%s]", report_id)
+            return ""
+        return data[0].get("fields", {}).get("body", "") or ""
+    except requests.RequestException as e:
+        logger.warning("fetch_report_body failed [report_id=%s stage=fetch_body]: %s", report_id, e)
+        return ""
