@@ -21,6 +21,9 @@ Thumbs.db
 # Claude Code local config
 .claude/
 
+# Live-source response cache (regenerated at runtime)
+.cache/
+
 # Local scratch / generated dumps (not part of the repo)
 repository_structure.txt
 _scenario_check.py
