@@ -24,6 +24,9 @@ Thumbs.db
 # Live-source response cache (regenerated at runtime)
 .cache/
 
+# Candidate history store (runtime staging area; created on first write, Phase 2)
+data/candidate_history.csv
+
 # Local scratch / generated dumps (not part of the repo)
 repository_structure.txt
 _scenario_check.py

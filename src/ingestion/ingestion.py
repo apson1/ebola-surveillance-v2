@@ -30,7 +30,8 @@ IDENTITY_COLUMNS = ["date", "province", "health_zone", "source_url"]
 
 
 def load_history(history_path: str = "data/history.csv") -> pd.DataFrame:
-    """Load and validate the historical seed. History must be clean: no nulls in counts."""
+    """Load and validate the historical store. confirmed_cases and deaths must be complete
+    (no nulls); suspected_cases may be null for live-promoted records (see context.md sec 8)."""
     df = pd.read_csv(history_path)
 
     missing = [c for c in CONTRACT_COLUMNS if c not in df.columns]
@@ -43,8 +44,11 @@ def load_history(history_path: str = "data/history.csv") -> pd.DataFrame:
     for col in COUNT_COLUMNS:
         # errors='raise' rejects any non-numeric value in history
         df[col] = pd.to_numeric(df[col], errors="raise")
+
+    # confirmed_cases and deaths must be complete; suspected_cases may be null (live promotion).
+    for col in ("confirmed_cases", "deaths"):
         if df[col].isnull().any():
-            raise ValueError(f"History has a null in '{col}'. History must be complete.")
+            raise ValueError(f"History has a null in '{col}'. Confirmed cases and deaths must be complete.")
 
     return df
 
