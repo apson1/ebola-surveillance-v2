@@ -4,6 +4,7 @@ import re
 import json
 from src.orchestrator import run_scan_async
 from src.alert.alert_agent import ESCALATION_LINE
+from src.ingestion.live_sources import fetch_recent_drc_ebola_reports
 
 # Page Configuration
 st.set_page_config(
@@ -92,6 +93,29 @@ st.markdown(
     "This decision-support system ingests outbreak data reports, detects new or accelerating clusters "
     "using rule-based Python agents, and ranks and formats them for coordinator review."
 )
+
+# --- Live official reports (ReliefWeb) --------------------------------------------------
+# Metadata only (Phase 1). Sits ABOVE the scenario runner and does not alter it. The fetch
+# is cached, so Streamlit reruns do not hammer the network.
+st.markdown("### 📡 Live official reports (ReliefWeb)")
+with st.container(border=True):
+    live = fetch_recent_drc_ebola_reports(limit=8)
+    if live.mode == "disabled":
+        st.info(f"🔌 {live.note}")
+    elif live.mode == "error":
+        st.warning(f"⚠️ {live.note}")
+    else:
+        if live.mode == "fallback":
+            # Make drift off the pinned outbreak clearly visible.
+            st.warning(f"⚠️ {live.note}")
+        else:
+            st.caption(live.note)
+        if live.reports:
+            for r in live.reports:
+                day = (r.get("date") or "?")[:10]
+                st.markdown(f"- [{r['title']}]({r['url']}) — **{r.get('source') or '?'}**, {day}")
+        else:
+            st.caption("No matching reports were returned.")
 
 SCENARIOS = {
     "multi_signal": "data/incoming/incoming_multi_signal.json",

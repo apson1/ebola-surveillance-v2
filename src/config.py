@@ -18,6 +18,15 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 os.environ.setdefault("GOOGLE_API_KEY", GEMINI_API_KEY or "")
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "FALSE")
 
+# ReliefWeb live-source config (Phase 1). The API v1 is decommissioned; v2 is required.
+# RELIEFWEB_APPNAME is a public request identifier ReliefWeb asks each client to send; if it
+# is unset, all live-source features degrade to disabled and the existing pipeline is
+# unaffected. RELIEFWEB_DISASTER_ID pins the DRC Bundibugyo outbreak (GLIDE EP-2026-000071-COD,
+# ReliefWeb disaster id 52586). It is overridable so the tool ages across future outbreaks.
+RELIEFWEB_APPNAME = os.getenv("RELIEFWEB_APPNAME")
+RELIEFWEB_API_BASE = os.getenv("RELIEFWEB_API_BASE", "https://api.reliefweb.int/v2")
+RELIEFWEB_DISASTER_ID = int(os.getenv("RELIEFWEB_DISASTER_ID", "52586"))
+
 # Surge Detector Thresholds
 SURGE_MIN_DAILY_NEW = 10.0
 SURGE_MIN_PCT_GROWTH = 0.5

@@ -4,3 +4,4 @@ mcp
 google-adk==2.3.0   # ADK core (Phase-0 smoke verified 2026-06-24). Pulls in google-genai.
 google-genai        # used directly (google.genai.types); version constrained by google-adk. See requirements.lock.
 streamlit
+requests             # ReliefWeb API v2 client (live sources, Phase 1)
