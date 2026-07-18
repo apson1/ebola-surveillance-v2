@@ -73,6 +73,30 @@ Every failure log carries `report_id` and the failing stage — e.g.
 validation index=1]`, `validation failed [report_id=… stage=validate] … failing closed`. Phase
 3's UI/demo can surface these so failures are seen being handled, not swallowed.
 
+## Post-review hardening (bug found + fixed)
+
+A double-check after the build surfaced a real bug the tests missed (they used a *complete*
+record). Fixed on this branch:
+
+- **Promotion honesty.** `promote_candidates` used to mark a record `promoted` even when
+  `append_to_history` silently dropped it — a safety-story problem, not just UX. It now returns
+  a `PromotionResult{added_to_history, promoted, rejected}`: only records that actually entered
+  history are `promoted`; the rest are marked `rejected` with a reason and reported.
+- **Scoped null-suspected exception (Option B).** Real per-zone sitrep lines give confirmed +
+  deaths but not suspected, so under the old strict rule they could never be promoted. Now a
+  null `suspected_cases` is allowed **only** on the candidate-promotion path
+  (`append_to_history(..., allow_null_suspected=True)`); `confirmed_cases` and `deaths` must
+  still be present, and every other write path stays strict. `load_history` tolerates a null
+  `suspected_cases` but still rejects a null confirmed/deaths. Documented in context.md sec 8
+  and SKILL.md.
+- **Zone deny list.** The extraction guard now also drops a `health_zone` that is a country or
+  province ("DRC", "Democratic Republic of the Congo", "Congo", or any province in
+  `history.csv`), closing the mislabeled-national-total path.
+
+New tests: suspected-null promotes (history keeps null suspected, correct confirmed/deaths and
+`load_history` accepts it); confirmed-null is rejected cleanly and reported; a `health_zone` of
+"DRC" is dropped by the guard. **Full suite: 52 OK.**
+
 ## Not done (correctly out of scope for Phase 2)
 
 No UI for extraction or promotion (that's Phase 3). No automatic promotion, ever. No changes to

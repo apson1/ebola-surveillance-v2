@@ -35,8 +35,10 @@ memory) -> alert agent -> guardrail layer -> human coordinator.
 All data files use exactly these columns, in order:
 `date, province, health_zone, suspected_cases, confirmed_cases, deaths, source_url, report_date`.
 `date` is the as-of date the detectors order by; `report_date` is the publication date used
-for provenance. Both are ISO 8601. Case and death counts are cumulative integers. Do not add,
-rename, or reorder columns without updating `docs/context.md` and every reader.
+for provenance. Both are ISO 8601. Case and death counts are cumulative integers. `confirmed_cases`
+and `deaths` are never null in history; `suspected_cases` may be null only for records promoted
+from live extraction (scoped exception, see context.md sec 8). Do not add, rename, or reorder
+columns without updating `docs/context.md` and every reader.
 
 ## Repository map
 

@@ -11,6 +11,7 @@ trust the model:
 
 Never raises. On any LLM/parse failure it returns an empty result and logs report_id + stage.
 """
+import functools
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -22,6 +23,25 @@ from pydantic import BaseModel, Field
 from src.config import GEMINI_API_KEY, GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
+
+# A health_zone must not be a country or a province. Static country aliases plus the province
+# names from data/history.csv are denied, so a mislabeled national/provincial total is dropped.
+_STATIC_DENIED_ZONES = {
+    "drc", "dr congo", "rdc", "congo",
+    "democratic republic of the congo", "democratic republic of congo",
+}
+
+
+@functools.lru_cache(maxsize=1)
+def _denied_zones() -> frozenset:
+    denied = set(_STATIC_DENIED_ZONES)
+    try:
+        import pandas as pd
+        provinces = pd.read_csv("data/history.csv")["province"].dropna().unique()
+        denied |= {str(p).strip().lower() for p in provinces}
+    except Exception as e:  # noqa: BLE001 — best-effort; the static aliases still apply
+        logger.warning("could not load provinces for the zone deny list: %s", e)
+    return frozenset(denied)
 
 
 class _ExtractedRow(BaseModel):
@@ -107,6 +127,14 @@ def extract_report(report_body: str, report_url: str, report_date: str) -> Extra
                 report_url,
             )
             dropped.append({"record": raw, "reason": "no_health_zone"})
+            continue
+        # R1 hardening: a health_zone must not be a country or province (mislabeled total).
+        if row.health_zone.strip().lower() in _denied_zones():
+            logger.warning(
+                "dropped record [report_id=%s stage=zone_guard]: denied zone '%s' (country/province label)",
+                report_url, row.health_zone,
+            )
+            dropped.append({"record": raw, "reason": "denied_zone"})
             continue
         records.append({
             "date": row.date,

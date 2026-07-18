@@ -12,7 +12,7 @@ from src.live.extract_report import (
 )
 from src.live.validate_extraction import _Verdict, _ValidationPayload, validate_extraction
 from src.live.candidate_store import (
-    write_candidates, promote_candidates, reset_candidates, candidate_id,
+    write_candidates, promote_candidates, reset_candidates, candidate_id, PromotionResult,
 )
 
 # A body whose sentences are copied verbatim into the crafted snippets below.
@@ -133,7 +133,10 @@ class TestExtraction(unittest.TestCase):
             cid = df.iloc[0]["candidate_id"]
             self.assertEqual(cid, candidate_id(rec))
             # promote into a temp history, leaving the real history.csv untouched
-            self.assertEqual(promote_candidates([cid], cand, hist), 1)
+            result = promote_candidates([cid], cand, hist)
+            self.assertEqual(result.added_to_history, 1)
+            self.assertEqual(result.promoted, [cid])
+            self.assertEqual(result.rejected, [])
             hdf = pd.read_csv(hist)
             self.assertIn("Beni", set(hdf["health_zone"]))
             self.assertEqual(pd.read_csv(cand).iloc[0]["status"], "promoted")
@@ -144,6 +147,65 @@ class TestExtraction(unittest.TestCase):
             self.assertTrue(os.path.exists(hist))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_promote_suspected_null_succeeds_with_null_suspected_in_history(self):
+        # Option B: a real-shape record (no suspected) promotes; history keeps null suspected.
+        tmp = tempfile.mkdtemp()
+        cand = os.path.join(tmp, "candidate.csv")
+        hist = os.path.join(tmp, "history.csv")
+        rec = {"date": "2026-07-12", "province": "Ituri", "health_zone": "Bunia",
+               "suspected_cases": None, "confirmed_cases": 503, "deaths": 156,
+               "source_url": "http://x", "report_date": "2026-07-14",
+               "snippet": "Bunia (503 cases, 156 deaths)"}
+        try:
+            write_candidates([rec], cand)
+            cid = candidate_id(rec)
+            result = promote_candidates([cid], cand, hist)
+            self.assertEqual(result.added_to_history, 1)
+            self.assertEqual(result.promoted, [cid])
+            self.assertEqual(result.rejected, [])
+            row = pd.read_csv(hist).iloc[0]
+            self.assertTrue(pd.isna(row["suspected_cases"]))     # null suspected allowed
+            self.assertEqual(int(row["confirmed_cases"]), 503)
+            self.assertEqual(int(row["deaths"]), 156)
+            # and the loader tolerates it
+            from src.ingestion.ingestion import load_history
+            self.assertEqual(len(load_history(hist)), 1)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_promote_confirmed_null_is_rejected_cleanly(self):
+        # A record missing confirmed_cases cannot enter history: rejected honestly, not promoted.
+        tmp = tempfile.mkdtemp()
+        cand = os.path.join(tmp, "candidate.csv")
+        hist = os.path.join(tmp, "history.csv")
+        rec = {"date": "2026-07-12", "province": "Ituri", "health_zone": "Bunia",
+               "suspected_cases": 10, "confirmed_cases": None, "deaths": 156,
+               "source_url": "http://x", "report_date": "2026-07-14", "snippet": "..."}
+        try:
+            write_candidates([rec], cand)
+            cid = candidate_id(rec)
+            result = promote_candidates([cid], cand, hist)
+            self.assertEqual(result.added_to_history, 0)
+            self.assertEqual(result.promoted, [])
+            self.assertEqual(len(result.rejected), 1)
+            self.assertEqual(result.rejected[0]["candidate_id"], cid)
+            self.assertEqual(pd.read_csv(cand).iloc[0]["status"], "rejected")  # honesty
+            self.assertFalse(os.path.exists(hist))                            # history untouched
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @patch("src.live.extract_report._call_extraction_llm")
+    def test_denied_zone_is_dropped(self, mock_llm):
+        # A national total mislabeled with a country name in health_zone is dropped by the guard.
+        body = "Democratic Republic of the Congo reported 1926 confirmed cases and 702 deaths."
+        mock_llm.return_value = _ExtractionPayload(records=[
+            _ExtractedRow(date="2026-07-14", province="", health_zone="DRC",
+                          confirmed_cases=1926, deaths=702, snippet=body),
+        ])
+        res = extract_report(body, "http://x/9", "2026-07-14")
+        self.assertEqual(len(res.records), 0)
+        self.assertTrue(any(d["reason"] == "denied_zone" for d in res.dropped))
 
 
 class TestValidationLive(unittest.TestCase):

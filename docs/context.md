@@ -104,7 +104,16 @@ All data files use these columns, in this order:
 few days.
 
 Counts are cumulative integers. A null count is allowed only in an incoming report, where
-it is treated as a data-quality signal. History must never contain a null count.
+it is treated as a data-quality signal. History must never contain a null `confirmed_cases`
+or `deaths`.
+
+**Scoped exception (live promotion).** The no-null rule was written for the curated seed and
+is preserved for the seed loader. Records promoted from `candidate_history.csv` (live ReliefWeb
+extraction) may carry a null in `suspected_cases` only, because that field is often absent in
+real situation reports and is not consumed by any detector (surge and CFR use `confirmed_cases`
+and `deaths`; `stale_or_missing` flags the gap). `confirmed_cases` and `deaths` must still be
+present; a null in either continues to route through `stale_or_missing` and never enters
+history. All non-promotion write paths remain strict.
 
 `data/history.csv` holds the historical seed. Incoming reports live in
 `data/incoming/*.json` and the agent scans them against history. An incoming report is JSON

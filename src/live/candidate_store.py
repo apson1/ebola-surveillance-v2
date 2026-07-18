@@ -10,6 +10,7 @@ import hashlib
 import logging
 import os
 import tempfile
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List
 
@@ -18,6 +19,16 @@ import pandas as pd
 from src.memory.history_store import CONTRACT_COLUMNS, append_to_history
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PromotionResult:
+    """Honest report of a promotion. `promoted` are candidate_ids that actually entered
+    history; `rejected` are those that could not (with a reason). `added_to_history` is the net
+    new rows written (an upsert that updates an existing row counts as 0)."""
+    added_to_history: int = 0
+    promoted: List[str] = field(default_factory=list)
+    rejected: List[Dict] = field(default_factory=list)   # {candidate_id, reason}
 
 CANDIDATE_PATH = "data/candidate_history.csv"
 _IDENTITY = ["date", "province", "health_zone", "source_url"]
@@ -78,24 +89,46 @@ def write_candidates(validated_records: List[Dict], path: str = CANDIDATE_PATH) 
 
 
 def promote_candidates(record_ids: List[str], path: str = CANDIDATE_PATH,
-                       history_path: str = "data/history.csv") -> int:
-    """Promote the given candidate_ids into history via append_to_history, and mark those rows
-    status='promoted'. Returns the net rows added to history. The ONLY candidate -> history
-    path; never called automatically."""
+                       history_path: str = "data/history.csv") -> PromotionResult:
+    """Promote the given candidate_ids into history, honestly.
+
+    A record can enter history only if confirmed_cases and deaths are present (suspected_cases
+    may be null — allow_null_suspected). Only records that actually entered history are marked
+    status='promoted'; records missing confirmed_cases or deaths are marked status='rejected'
+    and reported, never silently marked promoted. The ONLY candidate -> history path; never
+    called automatically."""
     df = _load(path)
     if df.empty or not record_ids:
-        return 0
+        return PromotionResult()
     selected = df[df["candidate_id"].isin(record_ids)]
     if selected.empty:
-        return 0
+        return PromotionResult()
 
-    records = selected[CONTRACT_COLUMNS].to_dict(orient="records")
-    added = append_to_history(records, history_path)
+    promotable_ids, promotable_records, rejected = [], [], []
+    for _, row in selected.iterrows():
+        cid = row["candidate_id"]
+        # confirmed_cases and deaths must be present; suspected_cases may be null.
+        if pd.isna(row["confirmed_cases"]) or pd.isna(row["deaths"]):
+            rejected.append({"candidate_id": cid,
+                             "reason": "missing confirmed_cases or deaths — cannot enter history"})
+        else:
+            promotable_ids.append(cid)
+            promotable_records.append({c: row[c] for c in CONTRACT_COLUMNS})
 
-    df.loc[df["candidate_id"].isin(record_ids), "status"] = "promoted"
+    added = append_to_history(promotable_records, history_path, allow_null_suspected=True) \
+        if promotable_records else 0
+
+    # Honesty: reflect what actually happened.
+    if promotable_ids:
+        df.loc[df["candidate_id"].isin(promotable_ids), "status"] = "promoted"
+    for r in rejected:
+        df.loc[df["candidate_id"] == r["candidate_id"], "status"] = "rejected"
+        logger.warning("promotion rejected [candidate_id=%s stage=promote]: %s", r["candidate_id"], r["reason"])
     _atomic_write(df[COLUMNS], path)
-    logger.info("promoted %d candidate(s); %d net row(s) added to history", len(selected), added)
-    return added
+
+    logger.info("promotion: %d promoted (%d net rows into history), %d rejected",
+                len(promotable_ids), added, len(rejected))
+    return PromotionResult(added_to_history=added, promoted=promotable_ids, rejected=rejected)
 
 
 def reset_candidates(path: str = CANDIDATE_PATH) -> None:
