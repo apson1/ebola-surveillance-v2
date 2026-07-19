@@ -20,11 +20,13 @@ Inside the Live scan tab, the operator moves top to bottom:
    **"Load specific report by ID"** + a **Load candidates** button — extracts from a known
    ReliefWeb report id directly (e.g. WHO **4221419**, *Bundibugyo External Sit Rep 09*, which has
    per-zone data), so a demo doesn't depend on which reports happen to be newest today. It fetches
-   the body directly via `fetch_report_body(id)` and runs the **same** extract → validate → review
-   flow as the picker (`source_url` is the stable `https://reliefweb.int/node/{id}`). A non-numeric
-   entry is rejected with a warning; a report that doesn't resolve or has an empty body shows the
-   same "Could not fetch this report's body" panel as the picker path. This does **not** replace
-   the recent-reports picker.
+   the body via `fetch_report_body(id)` and looks up the report's metadata via
+   `fetch_report_meta(id)` — so a directly-loaded report carries a real `report_date`, title and
+   `source_url` (falling back to the stable `https://reliefweb.int/node/{id}` if metadata is
+   unavailable) — then runs the **same** extract → validate → review flow as the picker. A
+   non-numeric entry is rejected with a warning; a report that doesn't resolve or has an empty body
+   shows the same "Could not fetch this report's body" panel as the picker path. This does **not**
+   replace the recent-reports picker.
 1. **Pick a report.** The recent DRC Ebola situation reports (Phase 1) are listed with a
    **🔄 Refresh latest report** control and a visible **"fetched N ago"** line so the 15-minute
    cache is legible on screen (not hidden in a tooltip). Each report has an **Extract** button.
@@ -68,12 +70,13 @@ the signals the operator needs to see.
 | File | Change |
 |---|---|
 | `app_streamlit.py` | Restructured into two tabs. New Live scan flow (load-by-ID input, report picker, refresh + "fetched N ago", amber/green/red candidate cards, two-gate promote → scan, failure states, two-step candidate-store reset). Both the by-ID input and the picker route through a shared `_select_report` helper into the same extract → validate → review flow. Scenario runner moved verbatim into its tab. Alert rendering extracted into a shared `render_alert_brief` used by both tabs. |
-| `src/ingestion/live_sources.py` | `LiveSourceResult` gained `fetched_at`; `fetch_recent_drc_ebola_reports(..., force=False)` bypasses the cache when the operator hits Refresh. |
+| `src/ingestion/live_sources.py` | `LiveSourceResult` gained `fetched_at`; `fetch_recent_drc_ebola_reports(..., force=False)` bypasses the cache when the operator hits Refresh. Added `fetch_report_meta(id)` so the load-by-ID path gets a real `report_date`/title/url. |
+| `src/live/candidate_store.py` | `promote_candidates` now also rejects (honestly, no crash) any record whose `date`/`report_date` is blank or unparseable — the irreversible gate can never crash `append_to_history`'s date normalization. |
 | `src/live/extract_report.py` | `ExtractionResult` gained `ok` / `error`; an LLM-call failure (rate-limit/network/parse) sets `ok=False` so the UI can tell a service failure apart from a genuine empty result. Behavior otherwise unchanged. |
 | `src/live/live_scan.py` (new) | Option-B scan: `prior_excluding_source`, `detect_new_data` (deterministic, for tests), and `run_scan_on_new_data` (full detection → ranking → guard → alert → guardrail, returns `{alert, flags, guardrail}`). |
 | `src/live/review.py` (new) | Pure, Streamlit-free review model: `build_review(extraction, validation)` → approvable cards (each with a `candidate_id`) + one merged rejected list with `human_reason(...)` text. Testable without a browser. |
 | `tests/test_live_scan.py` (new) | Review-model tests + the hermetic e2e (extract → validate → promote → option-B scan) asserting **both** `new_zone` and `surge` fire. |
-| `tests/test_extraction.py` | Two added tests: an LLM failure sets `ok=False` with the error text; a genuine empty stays `ok=True`. |
+| `tests/test_extraction.py` | Added tests: an LLM failure sets `ok=False` with the error text; a genuine empty stays `ok=True`; a blank `report_date` is rejected at promotion (no crash). |
 
 ## Verification results
 
@@ -89,7 +92,7 @@ the signals the operator needs to see.
   (Req 3 confirmed — Phase 2's deterministic guard already routes it there). ✅
 - **UI renders clean**: headless `AppTest` run of `app_streamlit.py` completes with **zero
   uncaught exceptions** (both tabs, all controls) in the default disabled-sources state. ✅
-- **Full suite: 60 tests OK** (52 unchanged + 8 new; 1 live D2 test skipped without an API key). ✅
+- **Full suite: 61 tests OK** (52 unchanged + 9 new; 1 live D2 test skipped without an API key). ✅
 - **Freeze respected**: no changes under `src/signal`, `src/alert`, `src/guardrails`, or `evals`;
   no data-contract change. ✅
 
@@ -132,6 +135,7 @@ daily Gemini quota was exhausted — the report in fact yields 10 per-zone candi
 | Extraction service failed — network/parse (`ok=False`) | "⚠️ The extraction service is unavailable right now… **not** the same as the report having no data. …retry," with error details. |
 | Every record rejected | "Every extracted record was rejected — nothing to promote," with the reasons on each red card. |
 | Nothing approved | The Promote button is disabled, with a caption saying so. |
+| Approved record has a blank/invalid date | Promotion rejects it honestly ("missing or invalid report_date — cannot enter history"); history is untouched, no traceback. |
 | Scan flags nothing | The shared alert renderer shows the no-signal state. |
 | Invented (non-verbatim) snippet | Red rejected card with the "possible invented quote" reason. |
 

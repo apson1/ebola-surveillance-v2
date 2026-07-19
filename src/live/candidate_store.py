@@ -38,6 +38,15 @@ COLUMNS = ["candidate_id", "status"] + CONTRACT_COLUMNS + ["snippet", "validated
 STATUSES = ("pending", "approved", "promoted", "rejected")
 
 
+def _date_ok(v) -> bool:
+    """True only if v parses to a real (non-NaT) date — guards against a blank/invalid date
+    reaching append_to_history, where _norm_date would raise on NaT."""
+    try:
+        return not pd.isna(pd.to_datetime(v))
+    except (ValueError, TypeError):
+        return False
+
+
 def candidate_id(record: Dict) -> str:
     """Stable id from the identity key, so a human can reference candidates for promotion and
     dedup is by id."""
@@ -107,10 +116,18 @@ def promote_candidates(record_ids: List[str], path: str = CANDIDATE_PATH,
     promotable_ids, promotable_records, rejected = [], [], []
     for _, row in selected.iterrows():
         cid = row["candidate_id"]
-        # confirmed_cases and deaths must be present; suspected_cases may be null.
+        # confirmed_cases and deaths must be present (suspected may be null); date and
+        # report_date must be real dates (a blank date would crash the history write).
+        problems = []
         if pd.isna(row["confirmed_cases"]) or pd.isna(row["deaths"]):
+            problems.append("missing confirmed_cases or deaths")
+        if not _date_ok(row.get("date")):
+            problems.append("missing or invalid as-of date")
+        if not _date_ok(row.get("report_date")):
+            problems.append("missing or invalid report_date")
+        if problems:
             rejected.append({"candidate_id": cid,
-                             "reason": "missing confirmed_cases or deaths — cannot enter history"})
+                             "reason": " and ".join(problems) + " — cannot enter history"})
         else:
             promotable_ids.append(cid)
             promotable_records.append({c: row[c] for c in CONTRACT_COLUMNS})

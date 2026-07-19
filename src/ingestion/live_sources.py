@@ -184,6 +184,29 @@ def fetch_recent_drc_ebola_reports(limit: int = 10, force: bool = False) -> Live
     return result
 
 
+def fetch_report_meta(report_id) -> Dict:
+    """Fetch a single report's metadata ({id, title, source, date, url}) by id. Returns {} on any
+    failure. Used by the 'load by ID' path so a directly-loaded report carries a real report_date,
+    title and source_url (the recent-list path already has these)."""
+    if not RELIEFWEB_APPNAME:
+        logger.warning("fetch_report_meta skipped: RELIEFWEB_APPNAME unset [report_id=%s]", report_id)
+        return {}
+    try:
+        resp = requests.post(
+            f"{RELIEFWEB_API_BASE}/reports",
+            params={"appname": RELIEFWEB_APPNAME},
+            json={"filter": {"field": "id", "value": report_id},
+                  "fields": {"include": _INCLUDE_FIELDS}, "limit": 1},
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data") or []
+        return _record(data[0]) if data else {}
+    except requests.RequestException as e:
+        logger.warning("fetch_report_meta failed [report_id=%s stage=fetch_meta]: %s", report_id, e)
+        return {}
+
+
 def fetch_report_body(report_id) -> str:
     """Fetch a single ReliefWeb report's markdown body by its id (Phase 2 input).
 

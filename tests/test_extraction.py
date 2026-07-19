@@ -214,6 +214,29 @@ class TestExtraction(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_promote_blank_report_date_is_rejected_not_crash(self):
+        # A record with an empty report_date (e.g. a load-by-ID with no metadata) must be
+        # rejected honestly, never crash append_to_history's date normalization.
+        tmp = tempfile.mkdtemp()
+        cand = os.path.join(tmp, "candidate.csv")
+        hist = os.path.join(tmp, "history.csv")
+        rec = {"date": "2026-07-12", "province": "North Kivu", "health_zone": "Beni",
+               "suspected_cases": None, "confirmed_cases": 30, "deaths": 20,
+               "source_url": "https://reliefweb.int/node/4221419", "report_date": "",
+               "snippet": "Beni (30 cases, 20 deaths)"}
+        try:
+            write_candidates([rec], cand)
+            cid = candidate_id(rec)
+            result = promote_candidates([cid], cand, hist)   # must not raise
+            self.assertEqual(result.added_to_history, 0)
+            self.assertEqual(result.promoted, [])
+            self.assertEqual(len(result.rejected), 1)
+            self.assertIn("report_date", result.rejected[0]["reason"])
+            self.assertEqual(pd.read_csv(cand).iloc[0]["status"], "rejected")
+            self.assertFalse(os.path.exists(hist))            # history untouched
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     @patch("src.live.extract_report._call_extraction_llm")
     def test_denied_zone_is_dropped(self, mock_llm):
         # A national total mislabeled with a country name in health_zone is dropped by the guard.

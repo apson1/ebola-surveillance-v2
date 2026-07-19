@@ -6,7 +6,9 @@ import streamlit as st
 
 from src.orchestrator import run_scan_async
 from src.alert.alert_agent import ESCALATION_LINE
-from src.ingestion.live_sources import fetch_recent_drc_ebola_reports, fetch_report_body
+from src.ingestion.live_sources import (
+    fetch_recent_drc_ebola_reports, fetch_report_body, fetch_report_meta,
+)
 from src.live.extract_report import extract_report
 from src.live.validate_extraction import validate_extraction
 from src.live.candidate_store import (
@@ -178,9 +180,15 @@ with tab_live:
         if not rid.isdigit():
             st.warning("Enter a numeric ReliefWeb report ID.")
         else:
-            # Body is fetched directly; no metadata lookup. source_url is the stable node URL.
-            _select_report(rid, f"https://reliefweb.int/node/{rid}",
-                           f"Report {rid} (loaded by ID)", "")
+            # Look up real metadata so the record has a valid report_date/title/url. Fall back to
+            # the stable node URL if metadata is unavailable (promotion still guards a bad date).
+            meta = fetch_report_meta(rid)
+            _select_report(
+                rid,
+                meta.get("url") or f"https://reliefweb.int/node/{rid}",
+                meta.get("title") or f"Report {rid} (loaded by ID)",
+                (meta.get("date") or "")[:10],
+            )
 
     st.markdown("---")
 
