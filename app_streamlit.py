@@ -2,10 +2,13 @@ import asyncio
 import re
 import time
 
+import altair as alt
+import pandas as pd
 import streamlit as st
 
 from src.orchestrator import run_scan_async
 from src.alert.alert_agent import ESCALATION_LINE
+from src.ingestion.ingestion import load_history
 from src.ingestion.live_sources import (
     fetch_recent_drc_ebola_reports, fetch_report_body, fetch_report_meta,
 )
@@ -16,6 +19,9 @@ from src.live.candidate_store import (
 )
 from src.live.review import build_review
 from src.live.live_scan import run_scan_on_new_data
+from src.insights.history_views import (
+    zone_trend_series, compute_history_diff, top_zones_by_recent_change, latest_reporting_round,
+)
 
 # Page Configuration
 st.set_page_config(
@@ -146,7 +152,9 @@ st.markdown(
     "with rule-based Python agents, and ranks and formats them for coordinator review."
 )
 
-tab_live, tab_scenario = st.tabs(["📡 Live scan (ReliefWeb)", "🧪 Scenario runner"])
+tab_live, tab_history, tab_scenario = st.tabs(
+    ["📡 Live scan (ReliefWeb)", "📊 History", "🧪 Scenario runner"]
+)
 
 
 # ========================================================================================
@@ -380,6 +388,113 @@ with tab_live:
             for k in ("live_promotion", "live_promoted_records", "live_scan"):
                 st.session_state[k] = None
             st.success("Candidate store cleared. `history.csv` untouched.")
+
+
+# ========================================================================================
+# TAB — History (read-only trends + since-the-previous-report diff; Phase A)
+# ========================================================================================
+def _trend_layer(series, value_col, y_title, latest):
+    base = alt.Chart(series).encode(
+        x=alt.X("date:T", title="As-of date"),
+        color=alt.Color("health_zone:N", title="Health zone"),
+    )
+    line = base.mark_line().encode(y=alt.Y(f"{value_col}:Q", title=y_title))
+    pts = base.mark_point(filled=True, size=55).encode(
+        y=f"{value_col}:Q",
+        tooltip=[alt.Tooltip("health_zone:N", title="zone"),
+                 alt.Tooltip("date:T", title="date"),
+                 alt.Tooltip(f"{value_col}:Q", title=y_title)],
+    )
+    layers = [line, pts]
+    if latest is not None:
+        rule = (alt.Chart(pd.DataFrame({"d": [latest]}))
+                .mark_rule(strokeDash=[4, 4], color="#a1a1aa")
+                .encode(x="d:T"))
+        layers.append(rule)
+    return alt.layer(*layers).properties(width=560, height=260, title=y_title)
+
+
+_DIFF_TINT = {"new": "rgba(22,101,52,0.16)", "stale": "rgba(113,113,122,0.16)"}
+
+
+def _render_diff_table(diff):
+    statuses = [d["status"] for d in diff]
+    surges = [d["surge_like"] for d in diff]
+    badge = {"new": "🟢 NEW", "stale": "⚪ STALE"}
+    disp = pd.DataFrame([{
+        "Zone": d["health_zone"], "Province": d["province"],
+        "Status": badge.get(d["status"], "🔴 SURGE" if d["surge_like"] else "🟠 changed"),
+        "Prior conf": d["prior_confirmed"], "Current conf": d["current_confirmed"],
+        "Δ conf": d["delta_confirmed"], "Prior deaths": d["prior_deaths"],
+        "Current deaths": d["current_deaths"], "Δ deaths": d["delta_deaths"],
+        "Days": d["days_between"],
+    } for d in diff])
+
+    def _tint(row):
+        i = row.name
+        status, surge = statuses[i], surges[i]
+        color = _DIFF_TINT.get(status, "rgba(220,38,38,0.18)" if surge else "rgba(217,119,6,0.16)")
+        css = [""] * len(row)
+        for col in ("Status", "Δ conf"):
+            css[row.index.get_loc(col)] = f"background-color:{color}"
+        return css
+
+    styled = disp.style.apply(_tint, axis=1).format(na_rep="—", precision=0)
+    st.dataframe(styled, hide_index=True, width="stretch")
+    st.caption(
+        "🔴 SURGE = the change would trip the surge detector • 🟠 changed • "
+        "🟢 NEW = first appearance • ⚪ STALE = this zone did not appear in the most recent report."
+    )
+
+
+with tab_history:
+    st.markdown("### 📊 History insights")
+    st.caption("Read-only views over `data/history.csv`. Nothing here changes history or runs a scan.")
+
+    try:
+        hist = load_history()
+    except Exception as e:  # noqa: BLE001 — no/blank history is a normal empty state, not a crash
+        hist = None
+        st.info(f"No history is available to chart yet ({e}).")
+
+    if hist is not None and len(hist):
+        all_zones = sorted(hist["health_zone"].unique())
+        latest = latest_reporting_round(hist)
+
+        # --- Section 1: per-zone trend charts ---
+        st.markdown("#### Per-zone trends")
+        default_zones = top_zones_by_recent_change(hist, n=min(5, len(all_zones)))
+        selected = st.multiselect(
+            "Zones to chart (default: the fastest-changing by recent Δ confirmed)",
+            options=all_zones, default=default_zones,
+        )
+        if not selected:
+            st.info("Select at least one zone to see its trend.")
+        else:
+            series = zone_trend_series(hist, selected)
+            chart = alt.vconcat(
+                _trend_layer(series, "confirmed_cases", "Confirmed cases", latest),
+                _trend_layer(series, "deaths", "Deaths", latest),
+            ).resolve_scale(x="shared")
+            st.altair_chart(chart)
+            st.caption("Marker shows the most recent reporting round in history.")
+            counts = series.groupby("health_zone").size()
+            sparse = [f"{z} ({int(c)} data point{'s' if c != 1 else ''})"
+                      for z, c in counts.items() if c < 3]
+            if sparse:
+                st.caption("Sparse series shown honestly (line + points): " + ", ".join(sparse) + ".")
+
+        # --- Section 2: since the previous report ---
+        st.markdown("---")
+        st.markdown("#### Since the previous report")
+        st.caption("Per zone: its two most-recent rows in history, largest movers first.")
+        diff = compute_history_diff(hist)
+        if not diff:
+            st.info("Not enough history to compute a diff yet.")
+        else:
+            _render_diff_table(diff)
+    elif hist is not None:
+        st.info("History is empty — promote a report in the Live scan tab to populate it.")
 
 
 # ========================================================================================
