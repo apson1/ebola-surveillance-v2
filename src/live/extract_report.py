@@ -9,7 +9,9 @@ trust the model:
   with no zone are dropped and logged.
 - `source_url` and `report_date` are filled from the caller's arguments, never the model.
 
-Never raises. On any LLM/parse failure it returns an empty result and logs report_id + stage.
+Never raises. On any LLM/parse failure it returns an empty result with ok=False (and the error
+text) and logs report_id + stage, so the caller can distinguish a service failure from a genuine
+"no per-zone data" result.
 """
 import functools
 import logging
@@ -63,6 +65,9 @@ class ExtractionResult:
     records: List[Dict] = field(default_factory=list)   # each: 8 contract columns + snippet
     dropped: List[Dict] = field(default_factory=list)   # {record, reason}
     note: str = ""
+    ok: bool = True       # False only when the LLM call itself failed (rate limit, network, parse)
+    error: str = ""       # the failure text when ok is False; lets the UI distinguish an
+    #                       extraction-service failure from a genuine "no per-zone data" result.
 
 
 _EXTRACTION_PROMPT = """You are a careful data extractor for an Ebola surveillance system.
@@ -107,7 +112,8 @@ def extract_report(report_body: str, report_url: str, report_date: str) -> Extra
         payload = _call_extraction_llm(report_body)
     except Exception as e:  # noqa: BLE001 — any LLM/parse failure degrades to empty
         logger.warning("extraction failed [report_id=%s stage=extract]: %s", report_url, e)
-        return ExtractionResult([], [], f"extraction failed: {e}")
+        # ok=False so the UI can say "service unavailable, retry" instead of "no data found".
+        return ExtractionResult([], [], f"extraction failed: {e}", ok=False, error=str(e))
 
     records, dropped = [], []
     for row in payload.records:

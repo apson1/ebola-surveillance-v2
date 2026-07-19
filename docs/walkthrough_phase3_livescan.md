@@ -69,9 +69,11 @@ the signals the operator needs to see.
 |---|---|
 | `app_streamlit.py` | Restructured into two tabs. New Live scan flow (load-by-ID input, report picker, refresh + "fetched N ago", amber/green/red candidate cards, two-gate promote → scan, failure states, two-step candidate-store reset). Both the by-ID input and the picker route through a shared `_select_report` helper into the same extract → validate → review flow. Scenario runner moved verbatim into its tab. Alert rendering extracted into a shared `render_alert_brief` used by both tabs. |
 | `src/ingestion/live_sources.py` | `LiveSourceResult` gained `fetched_at`; `fetch_recent_drc_ebola_reports(..., force=False)` bypasses the cache when the operator hits Refresh. |
+| `src/live/extract_report.py` | `ExtractionResult` gained `ok` / `error`; an LLM-call failure (rate-limit/network/parse) sets `ok=False` so the UI can tell a service failure apart from a genuine empty result. Behavior otherwise unchanged. |
 | `src/live/live_scan.py` (new) | Option-B scan: `prior_excluding_source`, `detect_new_data` (deterministic, for tests), and `run_scan_on_new_data` (full detection → ranking → guard → alert → guardrail, returns `{alert, flags, guardrail}`). |
 | `src/live/review.py` (new) | Pure, Streamlit-free review model: `build_review(extraction, validation)` → approvable cards (each with a `candidate_id`) + one merged rejected list with `human_reason(...)` text. Testable without a browser. |
 | `tests/test_live_scan.py` (new) | Review-model tests + the hermetic e2e (extract → validate → promote → option-B scan) asserting **both** `new_zone` and `surge` fire. |
+| `tests/test_extraction.py` | Two added tests: an LLM failure sets `ok=False` with the error text; a genuine empty stays `ok=True`. |
 
 ## Verification results
 
@@ -87,7 +89,7 @@ the signals the operator needs to see.
   (Req 3 confirmed — Phase 2's deterministic guard already routes it there). ✅
 - **UI renders clean**: headless `AppTest` run of `app_streamlit.py` completes with **zero
   uncaught exceptions** (both tabs, all controls) in the default disabled-sources state. ✅
-- **Full suite: 58 tests OK** (52 unchanged + 6 new; 1 live D2 test skipped without an API key). ✅
+- **Full suite: 60 tests OK** (52 unchanged + 8 new; 1 live D2 test skipped without an API key). ✅
 - **Freeze respected**: no changes under `src/signal`, `src/alert`, `src/guardrails`, or `evals`;
   no data-contract change. ✅
 
@@ -103,6 +105,21 @@ extracts cleanly. Verified headlessly (`streamlit.testing` AppTest): after an em
 the honest message is present, the other report's Extract button is still available, and a second
 pick runs without exceptions.
 
+## Service failure is not "no data" (extraction honesty)
+
+`extract_report` never raises — on an LLM rate-limit (Gemini 429), network error, or parse
+failure it returns an empty result. Previously that empty result was indistinguishable in the UI
+from a report that genuinely has no per-zone figures, so a rate-limited demo would tell the
+operator the report "has no data" — which is wrong and misleading. `ExtractionResult` now carries
+`ok` / `error`: only a service failure sets `ok=False` (a real empty extraction stays `ok=True`).
+The Live scan tab checks this **before** interpreting the result: `ok=False` renders a distinct
+retry panel (a rate-limit variant when the error mentions 429/quota, else a generic "service
+unavailable"), with an *Error details* expander — and never the "no per-zone figures" message. A
+genuine empty still renders the honest empty panel. Verified headlessly: a 429 shows the
+rate-limit panel and suppresses the false empty message; a true empty shows the empty panel and no
+rate-limit warning. (This was the exact confusion behind report 4221419 reading as empty while its
+daily Gemini quota was exhausted — the report in fact yields 10 per-zone candidates.)
+
 ## Failure states (all handled visibly)
 
 | Situation | What the operator sees |
@@ -110,7 +127,9 @@ pick runs without exceptions.
 | Sources disabled (no `RELIEFWEB_APPNAME`) / API error | An info/warning banner with the reason; the pipeline is otherwise unaffected. |
 | 0 reports returned | "No recent DRC Ebola reports were returned." |
 | Report body unavailable | "Could not fetch this report's body… Try another report." |
-| Extraction found no per-zone figures | "No per-zone case figures were found… national totals are intentionally excluded." |
+| Extraction found no per-zone figures (LLM ran, `ok=True`) | "No per-zone case figures were found… national totals are intentionally excluded." |
+| Extraction service failed — Gemini rate-limit/429 (`ok=False`) | "⏳ Extraction is rate-limited right now (Gemini API quota)… **not** a sign the report lacks data. …click Load candidates / Extract again to retry," with an *Error details* expander. |
+| Extraction service failed — network/parse (`ok=False`) | "⚠️ The extraction service is unavailable right now… **not** the same as the report having no data. …retry," with error details. |
 | Every record rejected | "Every extracted record was rejected — nothing to promote," with the reasons on each red card. |
 | Nothing approved | The Promote button is disabled, with a caption saying so. |
 | Scan flags nothing | The shared alert renderer shows the no-signal state. |

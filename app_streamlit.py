@@ -234,7 +234,27 @@ with tab_live:
         extraction = st.session_state.live_extraction
         validation = st.session_state.live_validation
 
-        if extraction is not None:
+        if extraction is not None and not extraction.ok:
+            # The extraction SERVICE failed (rate limit / network / parse) — this is NOT the
+            # same as the report having no per-zone data. Say so, and offer a retry.
+            err = (extraction.error or "").lower()
+            if any(t in err for t in ("429", "resource_exhausted", "quota", "rate limit", "rate-limit")):
+                st.warning(
+                    "⏳ **Extraction is rate-limited right now** (Gemini API quota). No records "
+                    "were read from this report — this is a temporary limit, **not** a sign the "
+                    "report lacks per-zone data. Wait a moment, then click **Load candidates** / "
+                    "**Extract** again to retry."
+                )
+            else:
+                st.error(
+                    "⚠️ **The extraction service is unavailable right now**, so no records could "
+                    "be read from this report. This is **not** the same as the report having no "
+                    "data. Click **Load candidates** / **Extract** again to retry."
+                )
+            with st.expander("Error details"):
+                st.code(extraction.error or "(no detail)")
+
+        elif extraction is not None:
             model = build_review(extraction, validation)
 
             # Failure states
