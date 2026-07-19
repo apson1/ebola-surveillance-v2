@@ -16,6 +16,15 @@ The app now has two tabs:
 
 Inside the Live scan tab, the operator moves top to bottom:
 
+0. **Load a specific report by ID** (additive, above the recent list). A small numeric input —
+   **"Load specific report by ID"** + a **Load candidates** button — extracts from a known
+   ReliefWeb report id directly (e.g. WHO **4221419**, *Bundibugyo External Sit Rep 09*, which has
+   per-zone data), so a demo doesn't depend on which reports happen to be newest today. It fetches
+   the body directly via `fetch_report_body(id)` and runs the **same** extract → validate → review
+   flow as the picker (`source_url` is the stable `https://reliefweb.int/node/{id}`). A non-numeric
+   entry is rejected with a warning; a report that doesn't resolve or has an empty body shows the
+   same "Could not fetch this report's body" panel as the picker path. This does **not** replace
+   the recent-reports picker.
 1. **Pick a report.** The recent DRC Ebola situation reports (Phase 1) are listed with a
    **🔄 Refresh latest report** control and a visible **"fetched N ago"** line so the 15-minute
    cache is legible on screen (not hidden in a tooltip). Each report has an **Extract** button.
@@ -58,7 +67,7 @@ the signals the operator needs to see.
 
 | File | Change |
 |---|---|
-| `app_streamlit.py` | Restructured into two tabs. New Live scan flow (report picker, refresh + "fetched N ago", amber/green/red candidate cards, two-gate promote → scan, failure states, two-step candidate-store reset). Scenario runner moved verbatim into its tab. Alert rendering extracted into a shared `render_alert_brief` used by both tabs. |
+| `app_streamlit.py` | Restructured into two tabs. New Live scan flow (load-by-ID input, report picker, refresh + "fetched N ago", amber/green/red candidate cards, two-gate promote → scan, failure states, two-step candidate-store reset). Both the by-ID input and the picker route through a shared `_select_report` helper into the same extract → validate → review flow. Scenario runner moved verbatim into its tab. Alert rendering extracted into a shared `render_alert_brief` used by both tabs. |
 | `src/ingestion/live_sources.py` | `LiveSourceResult` gained `fetched_at`; `fetch_recent_drc_ebola_reports(..., force=False)` bypasses the cache when the operator hits Refresh. |
 | `src/live/live_scan.py` (new) | Option-B scan: `prior_excluding_source`, `detect_new_data` (deterministic, for tests), and `run_scan_on_new_data` (full detection → ranking → guard → alert → guardrail, returns `{alert, flags, guardrail}`). |
 | `src/live/review.py` (new) | Pure, Streamlit-free review model: `build_review(extraction, validation)` → approvable cards (each with a `candidate_id`) + one merged rejected list with `human_reason(...)` text. Testable without a browser. |
@@ -81,6 +90,18 @@ the signals the operator needs to see.
 - **Full suite: 58 tests OK** (52 unchanged + 6 new; 1 live D2 test skipped without an API key). ✅
 - **Freeze respected**: no changes under `src/signal`, `src/alert`, `src/guardrails`, or `evals`;
   no data-contract change. ✅
+
+## Empty extraction does not dead-end the flow
+
+When a picked (or by-ID) report yields **zero** per-zone records, the panel renders the honest
+reason — *"No per-zone case figures were found in this report. National totals and unattributed
+numbers are intentionally excluded."* — and stops there **without** blocking the operator. The
+recent-reports picker is rendered at the tab level, above the selection block, so it stays
+interactive: the operator can click **Extract** on a different report (or Load a different ID)
+with **no refresh**. Each selection clears the cached extraction and re-runs, so a new report
+extracts cleanly. Verified headlessly (`streamlit.testing` AppTest): after an empty extraction,
+the honest message is present, the other report's Extract button is still available, and a second
+pick runs without exceptions.
 
 ## Failure states (all handled visibly)
 

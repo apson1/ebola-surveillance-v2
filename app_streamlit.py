@@ -151,6 +151,39 @@ tab_live, tab_scenario = st.tabs(["📡 Live scan (ReliefWeb)", "🧪 Scenario r
 # TAB 1 — Live scan (fetch -> extract -> review -> promote -> scan)
 # ========================================================================================
 with tab_live:
+    def _select_report(report_id, source_url, title, report_date):
+        """Route a chosen report into the shared extract -> validate -> review flow."""
+        st.session_state.live_selected_id = report_id
+        st.session_state.live_source_url = source_url
+        st.session_state.live_report_title = title
+        st.session_state.live_report_date = report_date
+        for k in ("live_extraction", "live_validation", "live_promotion",
+                  "live_promoted_records", "live_scan"):
+            st.session_state[k] = None
+        st.rerun()
+
+    # --- Step 0: load a specific report by ID (for repeatable demos, e.g. WHO 4221419) ---
+    id_col, btn_col = st.columns([3, 1])
+    with id_col:
+        by_id = st.text_input(
+            "Load specific report by ID",
+            placeholder="e.g. 4221419 (WHO Bundibugyo External Sit Rep 09)",
+            help="Bypasses the recent list and extracts from this ReliefWeb report id directly.",
+        )
+    with btn_col:
+        st.write("")  # align the button with the input box
+        load_by_id = st.button("Load candidates", use_container_width=True)
+    if load_by_id:
+        rid = (by_id or "").strip()
+        if not rid.isdigit():
+            st.warning("Enter a numeric ReliefWeb report ID.")
+        else:
+            # Body is fetched directly; no metadata lookup. source_url is the stable node URL.
+            _select_report(rid, f"https://reliefweb.int/node/{rid}",
+                           f"Report {rid} (loaded by ID)", "")
+
+    st.markdown("---")
+
     # --- Step 1: recent reports, refresh, and fetched-ago indicator ---
     top = st.columns([1, 3])
     with top[0]:
@@ -176,14 +209,7 @@ with tab_live:
             day = (r.get("date") or "?")[:10]
             row[0].markdown(f"[{r['title']}]({r['url']}) — **{r.get('source') or '?'}**, {day}")
             if row[1].button("Extract", key=f"pick_{r['id']}"):
-                st.session_state.live_selected_id = r["id"]
-                st.session_state.live_source_url = r["url"]
-                st.session_state.live_report_title = r["title"]
-                st.session_state.live_report_date = day
-                for k in ("live_extraction", "live_validation", "live_promotion",
-                          "live_promoted_records", "live_scan"):
-                    st.session_state[k] = None
-                st.rerun()
+                _select_report(r["id"], r["url"], r["title"], day)
 
     # --- Step 2: extract + validate the selected report (cached in session) ---
     sel_id = st.session_state.live_selected_id
