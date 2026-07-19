@@ -46,6 +46,7 @@ class LiveSourceResult:
     reports: List[Dict] = field(default_factory=list)
     mode: str = "disabled"   # "pinned" | "fallback" | "disabled" | "error"
     note: str = ""
+    fetched_at: float = 0.0  # epoch seconds this data was fetched (or cached); UI shows "fetched N ago"
 
 
 def _record(item: Dict) -> Dict:
@@ -110,7 +111,7 @@ def _read_cache(limit: int):
         with open(_CACHE_FILE, encoding="utf-8") as fh:
             entry = json.load(fh).get(str(limit))
         if entry and (time.time() - entry["fetched_at"]) < entry["ttl"]:
-            return LiveSourceResult(entry["reports"], entry["mode"], entry["note"])
+            return LiveSourceResult(entry["reports"], entry["mode"], entry["note"], entry["fetched_at"])
     except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
         pass
     return None
@@ -124,7 +125,7 @@ def _write_cache(limit: int, result: LiveSourceResult, ttl: int) -> None:
             with open(_CACHE_FILE, encoding="utf-8") as fh:
                 store = json.load(fh)
         store[str(limit)] = {
-            "fetched_at": time.time(), "ttl": ttl,
+            "fetched_at": result.fetched_at or time.time(), "ttl": ttl,
             "mode": result.mode, "note": result.note, "reports": result.reports,
         }
         with open(_CACHE_FILE, "w", encoding="utf-8") as fh:
@@ -135,20 +136,23 @@ def _write_cache(limit: int, result: LiveSourceResult, ttl: int) -> None:
 
 # ---- public entry point --------------------------------------------------------------
 
-def fetch_recent_drc_ebola_reports(limit: int = 10) -> LiveSourceResult:
+def fetch_recent_drc_ebola_reports(limit: int = 10, force: bool = False) -> LiveSourceResult:
     """Return the latest official DRC Ebola situation reports (metadata only).
 
-    Never raises. See the module docstring for the caching and fallback behavior.
+    Never raises. See the module docstring for the caching and fallback behavior. Pass
+    force=True to bypass the cache and re-fetch (the UI's "Refresh latest report" control).
     """
-    cached = _read_cache(limit)
-    if cached is not None:
-        return cached
+    if not force:
+        cached = _read_cache(limit)
+        if cached is not None:
+            return cached
 
     if not RELIEFWEB_APPNAME:
         result = LiveSourceResult(
             [], "disabled",
             "Live sources disabled: set RELIEFWEB_APPNAME in your .env to enable them.",
         )
+        result.fetched_at = time.time()
         _write_cache(limit, result, _FAILURE_TTL)
         return result
 
@@ -175,6 +179,7 @@ def fetch_recent_drc_ebola_reports(limit: int = 10) -> LiveSourceResult:
         result = LiveSourceResult([], "error", f"Live sources unavailable right now: {e}")
 
     # Cache successes (records returned) for 15 min; disabled/error/empty for 30s.
+    result.fetched_at = time.time()
     _write_cache(limit, result, _SUCCESS_TTL if result.reports else _FAILURE_TTL)
     return result
 
