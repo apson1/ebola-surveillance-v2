@@ -234,7 +234,9 @@ with tab_live:
         extraction = st.session_state.live_extraction
         validation = st.session_state.live_validation
 
-        if extraction is not None and not extraction.ok:
+        # getattr default guards against a stale ExtractionResult left in session_state from a
+        # pre-`ok` code version during a hot reload (treat an old cached result as ok).
+        if extraction is not None and not getattr(extraction, "ok", True):
             # The extraction SERVICE failed (rate limit / network / parse) — this is NOT the
             # same as the report having no per-zone data. Say so, and offer a retry.
             err = (extraction.error or "").lower()
