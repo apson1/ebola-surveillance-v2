@@ -77,6 +77,25 @@ class TestExtraction(unittest.TestCase):
         self.assertEqual(len(res.records), 0)
         self.assertTrue(any(d["reason"] == "snippet_not_verbatim" for d in res.dropped))
 
+    @patch("src.live.extract_report._call_extraction_llm")
+    def test_llm_failure_flags_not_ok_with_error(self, mock_llm):
+        # A rate-limit / network / parse failure must be distinguishable from genuine empty data.
+        mock_llm.side_effect = RuntimeError("429 RESOURCE_EXHAUSTED: quota exceeded")
+        res = extract_report(BODY, "http://x/5", "2026-07-16")
+        self.assertFalse(res.ok)
+        self.assertIn("RESOURCE_EXHAUSTED", res.error)
+        self.assertEqual(res.records, [])
+        self.assertEqual(res.dropped, [])
+
+    @patch("src.live.extract_report._call_extraction_llm")
+    def test_genuine_empty_is_ok_true(self, mock_llm):
+        # The model ran fine and found nothing -> ok stays True (a real "no per-zone data").
+        mock_llm.return_value = _ExtractionPayload(records=[])
+        res = extract_report("Cases are rising in the region.", "http://x/6", "2026-07-16")
+        self.assertTrue(res.ok)
+        self.assertEqual(res.error, "")
+        self.assertEqual(res.records, [])
+
     # ---- validation gating (hermetic) ----
     def _records_from_rows(self):
         payload = _ExtractionPayload(records=_three_rows())
@@ -192,6 +211,29 @@ class TestExtraction(unittest.TestCase):
             self.assertEqual(result.rejected[0]["candidate_id"], cid)
             self.assertEqual(pd.read_csv(cand).iloc[0]["status"], "rejected")  # honesty
             self.assertFalse(os.path.exists(hist))                            # history untouched
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_promote_blank_report_date_is_rejected_not_crash(self):
+        # A record with an empty report_date (e.g. a load-by-ID with no metadata) must be
+        # rejected honestly, never crash append_to_history's date normalization.
+        tmp = tempfile.mkdtemp()
+        cand = os.path.join(tmp, "candidate.csv")
+        hist = os.path.join(tmp, "history.csv")
+        rec = {"date": "2026-07-12", "province": "North Kivu", "health_zone": "Beni",
+               "suspected_cases": None, "confirmed_cases": 30, "deaths": 20,
+               "source_url": "https://reliefweb.int/node/4221419", "report_date": "",
+               "snippet": "Beni (30 cases, 20 deaths)"}
+        try:
+            write_candidates([rec], cand)
+            cid = candidate_id(rec)
+            result = promote_candidates([cid], cand, hist)   # must not raise
+            self.assertEqual(result.added_to_history, 0)
+            self.assertEqual(result.promoted, [])
+            self.assertEqual(len(result.rejected), 1)
+            self.assertIn("report_date", result.rejected[0]["reason"])
+            self.assertEqual(pd.read_csv(cand).iloc[0]["status"], "rejected")
+            self.assertFalse(os.path.exists(hist))            # history untouched
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
