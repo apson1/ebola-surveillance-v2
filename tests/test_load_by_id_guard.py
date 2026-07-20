@@ -4,6 +4,9 @@ A report id can numerically collide with a disaster id (the user typed 52586, th
 id, and got an unrelated report whose *report* id is 52586). These tests assert the app warns and
 does NOT silently proceed when a report is not linked to the active outbreak.
 """
+import os
+import shutil
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -11,8 +14,13 @@ from streamlit.testing.v1 import AppTest
 
 import src.ingestion.live_sources as ls
 import src.live.extract_report as er
+import src.live.validate_extraction as ve
+import src.live.candidate_store as cs
+from src.live.candidate_store import write_candidates, promote_candidates, candidate_id
 
 DISABLED = ls.LiveSourceResult([], "disabled", "live sources disabled", 1.0)
+ACTIVE_ID = 52586
+OTHER_ID = 99999
 
 
 def _meta(disaster_ids):
@@ -95,6 +103,76 @@ class TestLoadByIdGuard(unittest.TestCase):
             self.assertEqual(at.exception, [])
         finally:
             _stop(stack)
+
+    def test_offscope_load_anyway_disables_promote_button(self):
+        # extraction yields one otherwise-valid candidate, but from an off-scope report ->
+        # the promote button must render DISABLED with the switch-outbreak message.
+        body = "Dili reported 50 confirmed cases and 5 deaths."
+        ext = er._ExtractionPayload(records=[er._ExtractedRow(
+            date="2026-07-15", health_zone="Dili", confirmed_cases=50, deaths=5, snippet=body)])
+        val = ve._ValidationPayload(verdicts=[ve._Verdict(index=0, verdict="PASS")])
+        stack = [
+            patch.object(ls, "fetch_recent_drc_ebola_reports", return_value=DISABLED),
+            patch.object(ls, "fetch_report_meta", return_value=_meta([])),
+            patch.object(ls, "fetch_report_body", return_value=body),
+            patch.object(er, "_call_extraction_llm", return_value=ext),
+            patch.object(ve, "_call_validation_llm", return_value=val),
+            patch.object(cs, "write_candidates", return_value=1),   # don't touch the real store
+        ]
+        for p in stack:
+            p.start()
+        try:
+            at = AppTest.from_file("app_streamlit.py", default_timeout=60).run()
+            at.text_input(key="by_id_input").set_value("52586")
+            at = _click(at, "Load candidates")
+            at = _click(at, "Load anyway")
+            promote_btns = [b for b in at.button if b.label.startswith("✅ Promote")]
+            self.assertTrue(promote_btns, "promote button should render for an approvable candidate")
+            self.assertTrue(all(b.disabled for b in promote_btns), "promote button must be disabled")
+            errs = " ".join(e.value for e in at.error)
+            self.assertIn("switch the active outbreak", errs)
+            self.assertEqual(at.exception, [])
+        finally:
+            _stop(stack)
+
+
+class TestOffScopePromotionRefused(unittest.TestCase):
+    """Architectural backstop: promote_candidates refuses a record whose disaster_id is not the
+    active outbreak, even on a direct call — safety from architecture, not from a UI disclaimer."""
+
+    def _rec(self, disaster_id):
+        return {"disaster_id": disaster_id, "date": "2026-07-12", "province": "Dili",
+                "health_zone": "Dili", "suspected_cases": None, "confirmed_cases": 50, "deaths": 5,
+                "source_url": "http://x", "report_date": "2026-07-14",
+                "snippet": "Dili (50 cases, 5 deaths)"}
+
+    def test_offscope_record_is_refused_history_untouched(self):
+        tmp = tempfile.mkdtemp()
+        cand, hist = os.path.join(tmp, "c.csv"), os.path.join(tmp, "h.csv")
+        try:
+            rec = self._rec(OTHER_ID)                       # belongs to a different outbreak
+            write_candidates([rec], cand)
+            result = promote_candidates([candidate_id(rec)], cand, hist, active_disaster_id=ACTIVE_ID)
+            self.assertEqual(result.added_to_history, 0)
+            self.assertEqual(result.promoted, [])
+            self.assertEqual(len(result.rejected), 1)
+            self.assertIn("not associated with the active outbreak", result.rejected[0]["reason"])
+            self.assertFalse(os.path.exists(hist))          # nothing written
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_inscope_record_promotes(self):
+        tmp = tempfile.mkdtemp()
+        cand, hist = os.path.join(tmp, "c.csv"), os.path.join(tmp, "h.csv")
+        try:
+            rec = self._rec(ACTIVE_ID)                       # belongs to the active outbreak
+            write_candidates([rec], cand)
+            result = promote_candidates([candidate_id(rec)], cand, hist, active_disaster_id=ACTIVE_ID)
+            self.assertEqual(result.added_to_history, 1)
+            self.assertEqual(len(result.promoted), 1)
+            self.assertEqual(result.rejected, [])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

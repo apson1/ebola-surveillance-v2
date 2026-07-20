@@ -18,6 +18,7 @@ import pandas as pd
 
 from src.contract import CONTRACT_COLUMNS, IDENTITY_COLUMNS
 from src.memory.history_store import append_to_history
+from src.outbreaks import active_outbreak
 
 logger = logging.getLogger(__name__)
 
@@ -98,14 +99,20 @@ def write_candidates(validated_records: List[Dict], path: str = CANDIDATE_PATH) 
 
 
 def promote_candidates(record_ids: List[str], path: str = CANDIDATE_PATH,
-                       history_path: str = "data/history.csv") -> PromotionResult:
+                       history_path: str = "data/history.csv",
+                       active_disaster_id: int = None) -> PromotionResult:
     """Promote the given candidate_ids into history, honestly.
 
-    A record can enter history only if confirmed_cases and deaths are present (suspected_cases
-    may be null — allow_null_suspected). Only records that actually entered history are marked
-    status='promoted'; records missing confirmed_cases or deaths are marked status='rejected'
-    and reported, never silently marked promoted. The ONLY candidate -> history path; never
-    called automatically."""
+    A record can enter history only if it belongs to the active outbreak (its `disaster_id`
+    matches `active_disaster_id`, defaulting to the active outbreak) AND confirmed_cases and
+    deaths are present (suspected_cases may be null — allow_null_suspected). The outbreak-scope
+    check is architectural: a record extracted from a report that is not associated with the
+    active outbreak can never enter this outbreak's history, even via a direct call — to promote
+    it, switch the active outbreak to match the report's outbreak. Records that fail any check are
+    marked status='rejected' and reported, never silently marked promoted. The ONLY candidate ->
+    history path; never called automatically."""
+    if active_disaster_id is None:
+        active_disaster_id = active_outbreak().disaster_id
     df = _load(path)
     if df.empty or not record_ids:
         return PromotionResult()
@@ -117,8 +124,13 @@ def promote_candidates(record_ids: List[str], path: str = CANDIDATE_PATH,
     for _, row in selected.iterrows():
         cid = row["candidate_id"]
         # confirmed_cases and deaths must be present (suspected may be null); date and
-        # report_date must be real dates (a blank date would crash the history write).
+        # report_date must be real dates (a blank date would crash the history write); and the
+        # record must belong to the active outbreak.
         problems = []
+        rec_did = row.get("disaster_id")
+        if pd.isna(rec_did) or int(rec_did) != int(active_disaster_id):
+            problems.append(f"not associated with the active outbreak (disaster_id "
+                            f"{active_disaster_id}) — switch the active outbreak to promote it")
         if pd.isna(row["confirmed_cases"]) or pd.isna(row["deaths"]):
             problems.append("missing confirmed_cases or deaths")
         if not _date_ok(row.get("date")):

@@ -41,7 +41,7 @@ _DEFAULTS = {
     "live_report_date": None, "live_extraction": None, "live_validation": None,
     "live_promotion": None, "live_promoted_records": None, "live_scan": None,
     # load-by-ID outbreak-association guard
-    "live_pending_offscope": None, "live_offscope_loaded": None,
+    "live_pending_offscope": None, "live_offscope_loaded": None, "live_report_disaster_id": None,
 }
 for _k, _v in _DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
@@ -174,12 +174,16 @@ tab_live, tab_history, tab_scenario = st.tabs(
 # TAB 1 — Live scan (fetch -> extract -> review -> promote -> scan)
 # ========================================================================================
 with tab_live:
-    def _select_report(report_id, source_url, title, report_date):
-        """Route a chosen report into the shared extract -> validate -> review flow."""
+    def _select_report(report_id, source_url, title, report_date, disaster_id):
+        """Route a chosen report into the shared extract -> validate -> review flow. `disaster_id`
+        is the outbreak the report's data belongs to (active id for an in-scope report; the
+        report's own/other id, or 0 if unlinked, for an off-scope one) — it tags every extracted
+        record so promotion into the active outbreak's history is self-enforcing."""
         st.session_state.live_selected_id = report_id
         st.session_state.live_source_url = source_url
         st.session_state.live_report_title = title
         st.session_state.live_report_date = report_date
+        st.session_state.live_report_disaster_id = disaster_id
         for k in ("live_extraction", "live_validation", "live_promotion",
                   "live_promoted_records", "live_scan"):
             st.session_state[k] = None
@@ -216,15 +220,18 @@ with tab_live:
             date = (meta.get("date") or "")[:10]
             disaster_ids = meta.get("disaster_ids", [])
             if disaster_ids and active.disaster_id in disaster_ids:
-                # associated with the active outbreak -> proceed directly
+                # associated with the active outbreak -> proceed directly, tagged active
                 st.session_state.live_pending_offscope = None
                 st.session_state.live_offscope_loaded = None
-                _select_report(rid, url, title, date)
+                _select_report(rid, url, title, date, active.disaster_id)
             else:
-                # NOT associated (or unlinked / unverifiable) -> stage for explicit confirmation
+                # NOT associated (or unlinked / unverifiable) -> stage for explicit confirmation.
+                # Tag with the report's real (non-active) outbreak, or 0 if unlinked, so promotion
+                # into the active outbreak's history is refused architecturally.
                 st.session_state.live_pending_offscope = {
                     "id": rid, "url": url, "title": title, "date": date,
                     "disaster_ids": disaster_ids,
+                    "report_disaster_id": disaster_ids[0] if disaster_ids else 0,
                 }
                 st.rerun()
 
@@ -244,7 +251,7 @@ with tab_live:
             p = pending
             st.session_state.live_pending_offscope = None
             st.session_state.live_offscope_loaded = p["id"]     # flag the off-scope source
-            _select_report(p["id"], p["url"], p["title"], p["date"])
+            _select_report(p["id"], p["url"], p["title"], p["date"], p["report_disaster_id"])
         clear_col.button("Clear", on_click=_clear_offscope, use_container_width=True)
 
     st.markdown("---")
@@ -274,7 +281,8 @@ with tab_live:
             day = (r.get("date") or "?")[:10]
             row[0].markdown(f"[{r['title']}]({r['url']}) — **{r.get('source') or '?'}**, {day}")
             if row[1].button("Extract", key=f"pick_{r['id']}"):
-                _select_report(r["id"], r["url"], r["title"], day)
+                # the recent list is pinned to the active outbreak's disaster, so it is in-scope
+                _select_report(r["id"], r["url"], r["title"], day, active_outbreak().disaster_id)
 
     # --- Step 2: extract + validate the selected report (cached in session) ---
     sel_id = st.session_state.live_selected_id
@@ -284,9 +292,9 @@ with tab_live:
         if st.session_state.live_offscope_loaded == sel_id:
             _active = active_outbreak()
             st.warning(
-                f"⚠️ This report is **not associated with the active outbreak**. Any records you "
-                f"promote will be recorded under **{_active.display_name}** "
-                f"(disaster_id {_active.disaster_id}) — review carefully before promoting."
+                f"⚠️ This report is **not associated with the active outbreak** "
+                f"(**{_active.display_name}**). You can inspect its extracted candidates, but "
+                f"**promotion is blocked** — its records cannot enter this outbreak's history."
             )
 
         if st.session_state.live_extraction is None:
@@ -297,7 +305,7 @@ with tab_live:
                 else:
                     extraction = extract_report(body, st.session_state.live_source_url,
                                                 st.session_state.live_report_date,
-                                                active_outbreak().disaster_id)
+                                                st.session_state.live_report_disaster_id)
                     validation = validate_extraction(extraction.records, body) if extraction.records else None
                     st.session_state.live_extraction = extraction
                     st.session_state.live_validation = validation
@@ -382,7 +390,14 @@ with tab_live:
             # --- Step 4: gate 1 — promote (irreversible) ---
             if model.approvable:
                 st.markdown("---")
-                promote_disabled = len(approved_ids) == 0
+                off_scope = st.session_state.live_offscope_loaded == sel_id
+                if off_scope:
+                    st.error(
+                        f"🚫 This report is not associated with the active outbreak "
+                        f"({active_outbreak().display_name}). To promote records from it, switch the "
+                        f"active outbreak configuration to match this report's outbreak, then reload."
+                    )
+                promote_disabled = len(approved_ids) == 0 or off_scope
                 if st.button(f"✅ Promote {len(approved_ids)} approved record(s) to history",
                              type="primary", disabled=promote_disabled):
                     pr = promote_candidates(approved_ids)
@@ -394,7 +409,7 @@ with tab_live:
                     ]
                     st.session_state.live_scan = None
                     st.rerun()
-                if promote_disabled:
+                if len(approved_ids) == 0 and not off_scope:
                     st.caption("Select at least one candidate above to promote.")
 
             # --- Promotion summary (green) ---
