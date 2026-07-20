@@ -12,7 +12,7 @@ import pandas as pd
 
 from scripts.migrate_add_disaster_id import migrate
 from scripts.rollback_disaster_id import rollback, RollbackRefused
-from src.outbreaks import active_outbreak, REGISTRY
+from src.outbreaks import active_outbreak, profile_for, REGISTRY
 from src.contract import CONTRACT_COLUMNS, IDENTITY_COLUMNS
 from src.memory.history_store import append_to_history
 from src.ingestion.ingestion import load_incoming_report, get_prior_snapshot
@@ -54,6 +54,12 @@ class TestRegistry(unittest.TestCase):
             prof = active_outbreak()
         self.assertEqual(prof.disaster_id, OTHER)
         self.assertNotIn(OTHER, REGISTRY)
+
+    def test_profile_for_resolves_and_degrades(self):
+        self.assertEqual(profile_for(52586).country_name, "the Democratic Republic of the Congo")
+        ph = profile_for(OTHER)                                 # unconfigured id
+        self.assertEqual(ph.denied_zone_aliases, [])            # empty deny-list, no crash
+        self.assertTrue(ph.disease and ph.country_name)         # grammatical prompt fallbacks
 
 
 class TestMigration(unittest.TestCase):
