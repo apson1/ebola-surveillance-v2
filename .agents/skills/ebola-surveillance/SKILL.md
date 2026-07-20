@@ -51,6 +51,13 @@ not add, rename, or reorder columns without updating `src/contract.py`, `docs/co
   ranked flags; unsourced numbers and fabricated zones fail closed (prose withheld, sourced
   signals still surfaced). Clinical, treatment, or forecasting language is blocked and flagged
   by default (configurable to strip), scanning prose only and whitelisting operational terms.
+- `src/live/` live ReliefWeb extraction: the two-model check (`extract_report` → deterministic
+  guards → `validate_extraction`), candidate store, and option-B live scan. The extraction
+  **deny-list and both prompts are outbreak-configured** — they read the active profile's
+  `denied_zone_aliases`, `disease`, and `country_name` (Phase B2). The guards, the two-model
+  sequence, and the human promotion gate are outbreak-agnostic and unchanged.
+- `src/contract.py` the single 9-column data contract + identity key. `src/outbreaks.py` the
+  outbreak profile registry (active outbreak from `RELIEFWEB_DISASTER_ID`).
 - `src/memory/` the history store.
 - `src/config.py` thresholds and banned output patterns. All tunables live here.
 - `src/orchestrator.py` the ADK wiring and the `run_scan(incoming_path)` entry point.

@@ -127,6 +127,15 @@ incoming record: per-record `disaster_id` > file-level `disaster_id` > the activ
 outbreak; otherwise the active one is used. History is migrated to `disaster_id` once via
 `scripts/migrate_add_disaster_id.py` (rollback: `scripts/rollback_disaster_id.py`).
 
+**Outbreak-configured extraction (Phase B2).** The live-extraction deny-list and both LLM
+prompts (extract + validate) read the active outbreak profile in `src/outbreaks.py`: the
+deny-list is the profile's `denied_zone_aliases` (per-outbreak, no cross-outbreak leak, no
+longer a `history.csv` read), and the prompt intros are templated with `disease` +
+`country_name`. The prompts' rules blocks are byte-identical to pre-B2 and the safety layer
+(two-model check, verbatim-snippet guard, post-extraction deny-list guard, zero-on-national
+rule, human promotion gate) is unchanged — only *what* is denied and *what the intro says* are
+now configuration.
+
 ## 9. Glossary
 
 - Health zone: the DRC administrative unit used for outbreak reporting.
