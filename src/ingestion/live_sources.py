@@ -185,9 +185,10 @@ def fetch_recent_drc_ebola_reports(limit: int = 10, force: bool = False) -> Live
 
 
 def fetch_report_meta(report_id) -> Dict:
-    """Fetch a single report's metadata ({id, title, source, date, url}) by id. Returns {} on any
-    failure. Used by the 'load by ID' path so a directly-loaded report carries a real report_date,
-    title and source_url (the recent-list path already has these)."""
+    """Fetch a single report's metadata by id: {id, title, source, date, url, disaster_ids,
+    disaster_names}. Returns {} on any failure. `disaster_ids` are the ReliefWeb disasters this
+    report is linked to — the 'load by ID' path uses them to warn when a report is not associated
+    with the active outbreak (a report id can numerically collide with a disaster id)."""
     if not RELIEFWEB_APPNAME:
         logger.warning("fetch_report_meta skipped: RELIEFWEB_APPNAME unset [report_id=%s]", report_id)
         return {}
@@ -196,12 +197,19 @@ def fetch_report_meta(report_id) -> Dict:
             f"{RELIEFWEB_API_BASE}/reports",
             params={"appname": RELIEFWEB_APPNAME},
             json={"filter": {"field": "id", "value": report_id},
-                  "fields": {"include": _INCLUDE_FIELDS}, "limit": 1},
+                  "fields": {"include": _INCLUDE_FIELDS + ["disaster.id", "disaster.name"]},
+                  "limit": 1},
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json().get("data") or []
-        return _record(data[0]) if data else {}
+        if not data:
+            return {}
+        meta = _record(data[0])
+        disasters = data[0].get("fields", {}).get("disaster") or []
+        meta["disaster_ids"] = [d.get("id") for d in disasters if d.get("id") is not None]
+        meta["disaster_names"] = [d.get("name") for d in disasters if d.get("name")]
+        return meta
     except requests.RequestException as e:
         logger.warning("fetch_report_meta failed [report_id=%s stage=fetch_meta]: %s", report_id, e)
         return {}
