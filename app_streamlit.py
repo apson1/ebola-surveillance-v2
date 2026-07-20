@@ -40,6 +40,8 @@ _DEFAULTS = {
     "live_selected_id": None, "live_source_url": None, "live_report_title": None,
     "live_report_date": None, "live_extraction": None, "live_validation": None,
     "live_promotion": None, "live_promoted_records": None, "live_scan": None,
+    # load-by-ID outbreak-association guard
+    "live_pending_offscope": None, "live_offscope_loaded": None,
 }
 for _k, _v in _DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
@@ -184,12 +186,18 @@ with tab_live:
         st.rerun()
 
     # --- Step 0: load a specific report by ID (for repeatable demos, e.g. WHO 4221419) ---
+    def _clear_offscope():
+        st.session_state.live_pending_offscope = None
+        st.session_state.by_id_input = ""     # reset the input (allowed inside a callback)
+
     id_col, btn_col = st.columns([3, 1])
     with id_col:
         by_id = st.text_input(
-            "Load specific report by ID",
+            "Load specific report by report ID (7-digit, e.g. 4221419)",
+            key="by_id_input",
             placeholder="e.g. 4221419 (WHO Bundibugyo External Sit Rep 09)",
-            help="Bypasses the recent list and extracts from this ReliefWeb report id directly.",
+            help="Report IDs come from the report list below. This is different from the "
+                 "disaster_id shown in the outbreak header.",
         )
     with btn_col:
         st.write("")  # align the button with the input box
@@ -197,17 +205,47 @@ with tab_live:
     if load_by_id:
         rid = (by_id or "").strip()
         if not rid.isdigit():
-            st.warning("Enter a numeric ReliefWeb report ID.")
+            st.warning("Enter a numeric ReliefWeb report report ID (digits only).")
         else:
-            # Look up real metadata so the record has a valid report_date/title/url. Fall back to
-            # the stable node URL if metadata is unavailable (promotion still guards a bad date).
+            # Look up real metadata (title/date/url + linked disaster ids). Fall back to the stable
+            # node URL if metadata is unavailable (promotion still guards a bad date).
             meta = fetch_report_meta(rid)
-            _select_report(
-                rid,
-                meta.get("url") or f"https://reliefweb.int/node/{rid}",
-                meta.get("title") or f"Report {rid} (loaded by ID)",
-                (meta.get("date") or "")[:10],
-            )
+            active = active_outbreak()
+            url = meta.get("url") or f"https://reliefweb.int/node/{rid}"
+            title = meta.get("title") or f"Report {rid} (loaded by ID)"
+            date = (meta.get("date") or "")[:10]
+            disaster_ids = meta.get("disaster_ids", [])
+            if disaster_ids and active.disaster_id in disaster_ids:
+                # associated with the active outbreak -> proceed directly
+                st.session_state.live_pending_offscope = None
+                st.session_state.live_offscope_loaded = None
+                _select_report(rid, url, title, date)
+            else:
+                # NOT associated (or unlinked / unverifiable) -> stage for explicit confirmation
+                st.session_state.live_pending_offscope = {
+                    "id": rid, "url": url, "title": title, "date": date,
+                    "disaster_ids": disaster_ids,
+                }
+                st.rerun()
+
+    # Out-of-scope confirmation: the report is not linked to the active outbreak. Never silently proceed.
+    pending = st.session_state.live_pending_offscope
+    if pending:
+        _active = active_outbreak()
+        linked = (f"ReliefWeb links it to disaster id(s) {pending['disaster_ids']}"
+                  if pending["disaster_ids"] else "ReliefWeb links it to no outbreak")
+        st.warning(
+            f"⚠️ Report {pending['id']} is not associated with the active outbreak "
+            f"({_active.display_name}, disaster_id {_active.disaster_id}). Its title is "
+            f"\"{pending['title']}\". ({linked}.)"
+        )
+        anyway_col, clear_col = st.columns(2)
+        if anyway_col.button("Load anyway", type="primary", use_container_width=True):
+            p = pending
+            st.session_state.live_pending_offscope = None
+            st.session_state.live_offscope_loaded = p["id"]     # flag the off-scope source
+            _select_report(p["id"], p["url"], p["title"], p["date"])
+        clear_col.button("Clear", on_click=_clear_offscope, use_container_width=True)
 
     st.markdown("---")
 
@@ -243,6 +281,13 @@ with tab_live:
     if sel_id:
         st.markdown("---")
         st.markdown(f"### Candidates from: *{st.session_state.live_report_title}*")
+        if st.session_state.live_offscope_loaded == sel_id:
+            _active = active_outbreak()
+            st.warning(
+                f"⚠️ This report is **not associated with the active outbreak**. Any records you "
+                f"promote will be recorded under **{_active.display_name}** "
+                f"(disaster_id {_active.disaster_id}) — review carefully before promoting."
+            )
 
         if st.session_state.live_extraction is None:
             with st.spinner("Fetching body → extracting → validating (independent two-model check)…"):
