@@ -2,17 +2,18 @@
 
 Adding a new outbreak is a configuration change only: add one `OutbreakProfile` to `REGISTRY`
 and point `RELIEFWEB_DISASTER_ID` at its id. `active_outbreak()` resolves the currently active
-profile from that env var.
+profile from that env var; `profile_for(disaster_id)` resolves a specific outbreak's profile.
 
-Field consumption (so the profile does not look over-specified for what B1 uses):
+Field consumption:
   Consumed by B1 (plumbing):
     - disaster_id   : the history partition key + ReliefWeb pin + registry key
     - display_name  : shown in the UI's display-only outbreak header
-  Reserved for B2 (extraction generalization — NOT read yet):
-    - disease           : templated into the extraction prompt
-    - country_iso3      : ReliefWeb fallback query + geographic scope label
-    - denied_zone_aliases : replaces the DRC-specific extraction deny-list
-    - glide, fallback_query, report_format : currently hardcoded in live_sources; move to profile
+  Consumed by B2 (extraction generalization):
+    - disease           : templated into the extraction + validation prompts
+    - country_name      : friendly country, templated into the prompts
+    - denied_zone_aliases : the config-driven extraction deny-list (per outbreak)
+  Reserved (still hardcoded in live_sources; move to profile later):
+    - country_iso3, glide, fallback_query, report_format
 """
 import logging
 from dataclasses import dataclass, field
@@ -28,10 +29,12 @@ class OutbreakProfile:
     # --- consumed by B1 ---
     disaster_id: int
     display_name: str
-    # --- reserved for B2 (populated now, consumed later) ---
-    disease: str = ""
-    country_iso3: str = ""
+    # --- consumed by B2 (extraction). Neutral defaults keep a placeholder prompt grammatical. ---
+    disease: str = "the disease under surveillance"
+    country_name: str = "the affected area"
     denied_zone_aliases: List[str] = field(default_factory=list)
+    # --- reserved (live_sources, still hardcoded) ---
+    country_iso3: str = ""
     glide: str = ""
     fallback_query: str = "ebola"
     report_format: str = "Situation Report"
@@ -43,26 +46,29 @@ REGISTRY: Dict[int, OutbreakProfile] = {
         disaster_id=52586,
         display_name="DRC Ebola 2026",
         disease="Bundibugyo virus disease (Ebola)",
-        country_iso3="cod",
+        country_name="the Democratic Republic of the Congo",
         denied_zone_aliases=[
             "drc", "dr congo", "rdc", "congo",
             "democratic republic of the congo", "democratic republic of congo",
             "ituri", "north kivu",
         ],
+        country_iso3="cod",
         glide="EP-2026-000071-COD",
         fallback_query="ebola",
     ),
 }
 
-# Used when RELIEFWEB_DISASTER_ID points at an id not in REGISTRY (keeps the app running).
-_UNKNOWN = OutbreakProfile(disaster_id=0, display_name="Unconfigured outbreak")
+
+def profile_for(disaster_id: int) -> OutbreakProfile:
+    """The profile for a specific outbreak (the report's disaster_id), or a neutral placeholder
+    (empty deny-list, grammatical prompt fallbacks) if the id is not configured — never crashes."""
+    profile = REGISTRY.get(disaster_id)
+    if profile is None:
+        logger.warning("no outbreak profile for disaster_id=%s; using a placeholder", disaster_id)
+        return OutbreakProfile(disaster_id=disaster_id or 0, display_name=f"Outbreak {disaster_id}")
+    return profile
 
 
 def active_outbreak() -> OutbreakProfile:
     """The currently active outbreak profile, resolved from RELIEFWEB_DISASTER_ID."""
-    profile = REGISTRY.get(RELIEFWEB_DISASTER_ID)
-    if profile is None:
-        logger.warning("no outbreak profile for disaster_id=%s; using a placeholder", RELIEFWEB_DISASTER_ID)
-        return OutbreakProfile(disaster_id=RELIEFWEB_DISASTER_ID or 0,
-                               display_name=f"Outbreak {RELIEFWEB_DISASTER_ID}")
-    return profile
+    return profile_for(RELIEFWEB_DISASTER_ID)
