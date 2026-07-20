@@ -61,10 +61,18 @@ class ExtractionResult:
     #                       extraction-service failure from a genuine "no per-zone data" result.
 
 
-_EXTRACTION_PROMPT = """You are a careful data extractor for an Ebola surveillance system.
-From the REPORT BODY below, extract cumulative case counts that are EXPLICITLY attributed to a
-specific named health zone (health_zone) with a date.
+# The intro is templated per outbreak; `_EXTRACTION_RULES` is BYTE-IDENTICAL to the pre-B2 prompt
+# and is what drives extraction behavior. render_extraction_prompt composes intro + rules with
+# nothing injected between them (asserted by the prompt-parity test), so no outbreak's framing can
+# reweight the rules in the model's attention.
+_EXTRACTION_INTRO = (
+    "You are a careful data extractor for a {disease} outbreak surveillance system in "
+    "{country_name}.\n"
+    "From the REPORT BODY below, extract cumulative case counts that are EXPLICITLY attributed to a\n"
+    "specific named health zone (health_zone) with a date.\n"
+)
 
+_EXTRACTION_RULES = """
 Strict rules:
 - Extract ONLY figures tied to a specific health_zone. Do NOT extract national totals (e.g.
   country-wide figures) or provincial totals that are not tied to a specific health_zone.
@@ -80,12 +88,17 @@ Return JSON matching the schema: a list of records, each with date, province, he
 suspected_cases, confirmed_cases, deaths, and snippet."""
 
 
-def _call_extraction_llm(report_body: str) -> _ExtractionPayload:
+def render_extraction_prompt(profile) -> str:
+    """Per-outbreak intro + the invariant rules block, with nothing between them."""
+    return _EXTRACTION_INTRO.format(disease=profile.disease, country_name=profile.country_name) + _EXTRACTION_RULES
+
+
+def _call_extraction_llm(prompt: str, report_body: str) -> _ExtractionPayload:
     """The single extraction LLM call. Patched in hermetic tests."""
     client = genai.Client(api_key=GEMINI_API_KEY)
     resp = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=f"{_EXTRACTION_PROMPT}\n\nREPORT BODY:\n{report_body}",
+        contents=f"{prompt}\n\nREPORT BODY:\n{report_body}",
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=_ExtractionPayload,
@@ -103,7 +116,8 @@ def extract_report(report_body: str, report_url: str, report_date: str,
     outbreak. source_url, report_date and disaster_id are filled from args, never the model.
     Guards and prompt are unchanged (their generalization is B2). Never raises."""
     try:
-        payload = _call_extraction_llm(report_body)
+        prompt = render_extraction_prompt(profile_for(disaster_id))
+        payload = _call_extraction_llm(prompt, report_body)
     except Exception as e:  # noqa: BLE001 — any LLM/parse failure degrades to empty
         logger.warning("extraction failed [report_id=%s stage=extract]: %s", report_url, e)
         # ok=False so the UI can say "service unavailable, retry" instead of "no data found".
