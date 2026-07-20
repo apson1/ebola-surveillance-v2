@@ -27,6 +27,7 @@ from typing import Dict, List
 import requests
 
 from src.config import RELIEFWEB_API_BASE, RELIEFWEB_APPNAME, RELIEFWEB_DISASTER_ID
+from src.outbreaks import profile_for
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +80,10 @@ def _post(body: Dict) -> List[Dict]:
     return [_record(it) for it in data.get("data", [])]
 
 
-def _pinned_query(limit: int) -> List[Dict]:
+def _pinned_query(limit: int, disaster_id: int) -> List[Dict]:
     return _post({
         "filter": {"operator": "AND", "conditions": [
-            {"field": "disaster.id", "value": RELIEFWEB_DISASTER_ID},
+            {"field": "disaster.id", "value": disaster_id},
             {"field": "format.name", "value": "Situation Report"},
         ]},
         "fields": {"include": _INCLUDE_FIELDS},
@@ -91,11 +92,11 @@ def _pinned_query(limit: int) -> List[Dict]:
     })
 
 
-def _fallback_query(limit: int) -> List[Dict]:
+def _fallback_query(limit: int, country_iso3: str, query: str) -> List[Dict]:
     return _post({
-        "query": {"value": "ebola"},
+        "query": {"value": query},
         "filter": {"operator": "AND", "conditions": [
-            {"field": "primary_country.iso3", "value": "cod"},
+            {"field": "primary_country.iso3", "value": country_iso3},
             {"field": "format.name", "value": "Situation Report"},
         ]},
         "fields": {"include": _INCLUDE_FIELDS},
@@ -106,10 +107,16 @@ def _fallback_query(limit: int) -> List[Dict]:
 
 # ---- caching -------------------------------------------------------------------------
 
-def _read_cache(limit: int):
+def _cache_key(disaster_id: int, limit: int) -> str:
+    """Cache slot per (outbreak, limit), so switching outbreaks never serves another
+    outbreak's cached report list."""
+    return f"{disaster_id}:{limit}"
+
+
+def _read_cache(disaster_id: int, limit: int):
     try:
         with open(_CACHE_FILE, encoding="utf-8") as fh:
-            entry = json.load(fh).get(str(limit))
+            entry = json.load(fh).get(_cache_key(disaster_id, limit))
         if entry and (time.time() - entry["fetched_at"]) < entry["ttl"]:
             return LiveSourceResult(entry["reports"], entry["mode"], entry["note"], entry["fetched_at"])
     except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
@@ -117,14 +124,14 @@ def _read_cache(limit: int):
     return None
 
 
-def _write_cache(limit: int, result: LiveSourceResult, ttl: int) -> None:
+def _write_cache(disaster_id: int, limit: int, result: LiveSourceResult, ttl: int) -> None:
     try:
         os.makedirs(_CACHE_DIR, exist_ok=True)
         store = {}
         if os.path.exists(_CACHE_FILE):
             with open(_CACHE_FILE, encoding="utf-8") as fh:
                 store = json.load(fh)
-        store[str(limit)] = {
+        store[_cache_key(disaster_id, limit)] = {
             "fetched_at": result.fetched_at or time.time(), "ttl": ttl,
             "mode": result.mode, "note": result.note, "reports": result.reports,
         }
@@ -136,14 +143,18 @@ def _write_cache(limit: int, result: LiveSourceResult, ttl: int) -> None:
 
 # ---- public entry point --------------------------------------------------------------
 
-def fetch_recent_drc_ebola_reports(limit: int = 10, force: bool = False) -> LiveSourceResult:
-    """Return the latest official DRC Ebola situation reports (metadata only).
+def fetch_recent_drc_ebola_reports(limit: int = 10, disaster_id: int = RELIEFWEB_DISASTER_ID,
+                                   force: bool = False) -> LiveSourceResult:
+    """Return the latest official situation reports for `disaster_id` (metadata only).
 
-    Never raises. See the module docstring for the caching and fallback behavior. Pass
-    force=True to bypass the cache and re-fetch (the UI's "Refresh latest report" control).
+    `disaster_id` defaults to the env-configured outbreak; the UI passes the session-selected
+    one. The pinned query filters on it; the fallback query uses the outbreak profile's country
+    and text query. The cache is keyed per (disaster_id, limit) so switching outbreaks never
+    serves another outbreak's list. Never raises. Pass force=True to bypass the cache.
     """
+    profile = profile_for(disaster_id)
     if not force:
-        cached = _read_cache(limit)
+        cached = _read_cache(disaster_id, limit)
         if cached is not None:
             return cached
 
@@ -153,26 +164,28 @@ def fetch_recent_drc_ebola_reports(limit: int = 10, force: bool = False) -> Live
             "Live sources disabled: set RELIEFWEB_APPNAME in your .env to enable them.",
         )
         result.fetched_at = time.time()
-        _write_cache(limit, result, _FAILURE_TTL)
+        _write_cache(disaster_id, limit, result, _FAILURE_TTL)
         return result
 
     try:
-        reports = _pinned_query(limit)
+        reports = _pinned_query(limit, disaster_id)
         if reports:
             result = LiveSourceResult(
                 reports, "pinned",
-                f"Pinned to DRC Ebola disaster {RELIEFWEB_DISASTER_ID} (GLIDE EP-2026-000071-COD).",
+                f"Pinned to {profile.display_name} disaster {disaster_id}"
+                + (f" (GLIDE {profile.glide})" if profile.glide else "") + ".",
             )
         else:
             logger.warning(
-                "Pinned disaster %s returned 0 reports; falling back to 'ebola' + DRC text query.",
-                RELIEFWEB_DISASTER_ID,
+                "Pinned disaster %s returned 0 reports; falling back to '%s' + %s text query.",
+                disaster_id, profile.fallback_query, profile.country_iso3 or "country",
             )
-            reports = _fallback_query(limit)
+            reports = _fallback_query(limit, profile.country_iso3, profile.fallback_query)
             result = LiveSourceResult(
                 reports, "fallback",
-                f"Fallback active: pinned disaster {RELIEFWEB_DISASTER_ID} returned no reports; "
-                "showing an 'ebola' + DRC text query instead (we may have drifted off the pinned outbreak).",
+                f"Fallback active: pinned disaster {disaster_id} returned no reports; showing a "
+                f"'{profile.fallback_query}' text query for {profile.country_name} instead "
+                "(we may have drifted off the pinned outbreak).",
             )
     except requests.RequestException as e:
         logger.warning("ReliefWeb fetch failed: %s", e)
@@ -180,7 +193,7 @@ def fetch_recent_drc_ebola_reports(limit: int = 10, force: bool = False) -> Live
 
     # Cache successes (records returned) for 15 min; disabled/error/empty for 30s.
     result.fetched_at = time.time()
-    _write_cache(limit, result, _SUCCESS_TTL if result.reports else _FAILURE_TTL)
+    _write_cache(disaster_id, limit, result, _SUCCESS_TTL if result.reports else _FAILURE_TTL)
     return result
 
 
