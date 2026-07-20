@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import time
 
@@ -22,7 +23,9 @@ from src.live.live_scan import run_scan_on_new_data
 from src.insights.history_views import (
     zone_trend_series, compute_history_diff, top_zones_by_recent_change, latest_reporting_round,
 )
-from src.outbreaks import active_outbreak
+from src.outbreaks import active_outbreak, profile_for, REGISTRY
+
+logger = logging.getLogger(__name__)
 
 # Page Configuration
 st.set_page_config(
@@ -155,15 +158,43 @@ st.markdown(
     "with rule-based Python agents, and ranks and formats them for coordinator review."
 )
 
-# Display-only active-outbreak header. The active outbreak is a configuration choice
-# (RELIEFWEB_DISASTER_ID); switching is a config change, not a per-session action.
-_OUTBREAK = active_outbreak()
-st.markdown(
-    f"<div style='display:inline-block;padding:4px 12px;border:1px solid #6366f1;border-radius:8px;"
-    f"font-size:0.85rem;margin:0.2rem 0 0.5rem;'>🌍 Active outbreak: "
-    f"<b>{_OUTBREAK.display_name}</b> · disaster_id <code>{_OUTBREAK.disaster_id}</code></div>",
-    unsafe_allow_html=True,
-)
+# Active-outbreak selector (session-scoped). RELIEFWEB_DISASTER_ID is the DEFAULT; this selector
+# overrides it for the Live scan + History tabs. The technical disaster_id lives in the expander,
+# not the always-visible line, so the coordinator sees only the readable name.
+_env_id = active_outbreak().disaster_id
+_registry_ids = list(REGISTRY.keys())
+_default_id = _env_id if _env_id in REGISTRY else (_registry_ids[0] if _registry_ids else _env_id)
+# Seed / validate: reset an unset, stale, or unconfigured session id to the default (logged).
+if st.session_state.get("active_disaster_id") not in REGISTRY:
+    if st.session_state.get("active_disaster_id") is not None:
+        logger.warning("active_disaster_id %s not in registry; falling back to %s",
+                       st.session_state.get("active_disaster_id"), _default_id)
+    st.session_state.active_disaster_id = _default_id
+
+_sel_col, _ = st.columns([2, 3])
+with _sel_col:
+    st.selectbox("🌍 Active outbreak", options=_registry_ids,
+                 format_func=lambda i: profile_for(i).display_name, key="active_disaster_id")
+
+active_id = st.session_state.active_disaster_id
+active_profile = profile_for(active_id)
+
+# Reset-on-switch: a new outbreak invalidates any in-progress live-scan flow from the old one.
+if st.session_state.get("_last_active_id") != active_id:
+    if st.session_state.get("_last_active_id") is not None:
+        for _k in ("live_selected_id", "live_source_url", "live_report_title", "live_report_date",
+                   "live_report_disaster_id", "live_extraction", "live_validation", "live_promotion",
+                   "live_promoted_records", "live_scan", "live_pending_offscope", "live_offscope_loaded"):
+            st.session_state[_k] = None
+    st.session_state._last_active_id = active_id
+
+with st.expander("Outbreak details"):
+    st.markdown(
+        f"**ReliefWeb disaster_id:** `{active_profile.disaster_id}`  \n"
+        f"**Country:** {active_profile.country_name}  \n"
+        + (f"**GLIDE:** {active_profile.glide}  \n" if active_profile.glide else "")
+        + f"**Disease:** {active_profile.disease}"
+    )
 
 tab_live, tab_history, tab_scenario = st.tabs(
     ["📡 Live scan (ReliefWeb)", "📊 History", "🧪 Scenario runner"]
@@ -214,7 +245,7 @@ with tab_live:
             # Look up real metadata (title/date/url + linked disaster ids). Fall back to the stable
             # node URL if metadata is unavailable (promotion still guards a bad date).
             meta = fetch_report_meta(rid)
-            active = active_outbreak()
+            active = active_profile
             url = meta.get("url") or f"https://reliefweb.int/node/{rid}"
             title = meta.get("title") or f"Report {rid} (loaded by ID)"
             date = (meta.get("date") or "")[:10]
@@ -238,7 +269,7 @@ with tab_live:
     # Out-of-scope confirmation: the report is not linked to the active outbreak. Never silently proceed.
     pending = st.session_state.live_pending_offscope
     if pending:
-        _active = active_outbreak()
+        _active = active_profile
         linked = (f"ReliefWeb links it to disaster id(s) {pending['disaster_ids']}"
                   if pending["disaster_ids"] else "ReliefWeb links it to no outbreak")
         st.warning(
@@ -260,7 +291,7 @@ with tab_live:
     top = st.columns([1, 3])
     with top[0]:
         refresh_clicked = st.button("🔄 Refresh latest report", use_container_width=True)
-    live = fetch_recent_drc_ebola_reports(limit=8, force=refresh_clicked)
+    live = fetch_recent_drc_ebola_reports(limit=8, disaster_id=active_id, force=refresh_clicked)
     with top[1]:
         if live.fetched_at:
             st.caption(f"Report list fetched **{_ago(live.fetched_at)}** (15-minute cache).")
@@ -282,7 +313,7 @@ with tab_live:
             row[0].markdown(f"[{r['title']}]({r['url']}) — **{r.get('source') or '?'}**, {day}")
             if row[1].button("Extract", key=f"pick_{r['id']}"):
                 # the recent list is pinned to the active outbreak's disaster, so it is in-scope
-                _select_report(r["id"], r["url"], r["title"], day, active_outbreak().disaster_id)
+                _select_report(r["id"], r["url"], r["title"], day, active_id)
 
     # --- Step 2: extract + validate the selected report (cached in session) ---
     sel_id = st.session_state.live_selected_id
@@ -290,7 +321,7 @@ with tab_live:
         st.markdown("---")
         st.markdown(f"### Candidates from: *{st.session_state.live_report_title}*")
         if st.session_state.live_offscope_loaded == sel_id:
-            _active = active_outbreak()
+            _active = active_profile
             st.warning(
                 f"⚠️ This report is **not associated with the active outbreak** "
                 f"(**{_active.display_name}**). You can inspect its extracted candidates, but "
@@ -394,13 +425,13 @@ with tab_live:
                 if off_scope:
                     st.error(
                         f"🚫 This report is not associated with the active outbreak "
-                        f"({active_outbreak().display_name}). To promote records from it, switch the "
+                        f"({active_profile.display_name}). To promote records from it, switch the "
                         f"active outbreak configuration to match this report's outbreak, then reload."
                     )
                 promote_disabled = len(approved_ids) == 0 or off_scope
                 if st.button(f"✅ Promote {len(approved_ids)} approved record(s) to history",
                              type="primary", disabled=promote_disabled):
-                    pr = promote_candidates(approved_ids)
+                    pr = promote_candidates(approved_ids, active_disaster_id=active_id)
                     approved_records = [c.record for c in model.approvable if c.candidate_id in approved_ids]
                     promoted_set = set(pr.promoted)
                     st.session_state.live_promotion = pr
@@ -437,6 +468,7 @@ with tab_live:
                             scan = asyncio.run(run_scan_on_new_data(
                                 st.session_state.live_promoted_records or [],
                                 st.session_state.live_source_url,
+                                disaster_id=active_id,
                             ))
                             st.session_state.live_scan = scan
                         except Exception as e:  # noqa: BLE001
@@ -529,7 +561,7 @@ with tab_history:
         hist = None
         st.info(f"No history is available to chart yet ({e}).")
 
-    active_id = active_outbreak().disaster_id
+    active_id = st.session_state.active_disaster_id
     if hist is not None:
         hist = hist[hist["disaster_id"] == active_id]  # scope every view to the active outbreak
 
