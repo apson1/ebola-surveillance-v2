@@ -20,13 +20,8 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-CONTRACT_COLUMNS = [
-    "date", "province", "health_zone",
-    "suspected_cases", "confirmed_cases", "deaths",
-    "source_url", "report_date",
-]
-COUNT_COLUMNS = ["suspected_cases", "confirmed_cases", "deaths"]
-IDENTITY_COLUMNS = ["date", "province", "health_zone", "source_url"]
+from src.contract import CONTRACT_COLUMNS, COUNT_COLUMNS, IDENTITY_COLUMNS
+from src.outbreaks import active_outbreak
 
 
 def load_history(history_path: str = "data/history.csv") -> pd.DataFrame:
@@ -63,6 +58,8 @@ def load_incoming_report(report_path: str = "data/incoming/incoming_new_zone.jso
         payload = json.load(f)
 
     top_report_date = payload.get("report_date")
+    file_disaster_id = payload.get("disaster_id")   # optional file-level pin (see data contract)
+    active_id = active_outbreak().disaster_id
     records = payload.get("data", [])
     if not records:
         raise ValueError(f"Incoming report '{report_path}' has no records under 'data'.")
@@ -71,6 +68,12 @@ def load_incoming_report(report_path: str = "data/incoming/incoming_new_zone.jso
     for i, raw in enumerate(records):
         rec = dict(raw)
         rec.setdefault("report_date", top_report_date)
+
+        # disaster_id precedence: per-record value > file-level value > active outbreak. We never
+        # silently mis-tag: the file can pin its own disaster_id; otherwise the active one is used.
+        if rec.get("disaster_id") in (None, ""):
+            rec["disaster_id"] = (file_disaster_id if file_disaster_id not in (None, "")
+                                  else active_id)
 
         for col in IDENTITY_COLUMNS:
             if col not in rec or rec[col] in (None, ""):
@@ -98,10 +101,15 @@ def load_incoming_report(report_path: str = "data/incoming/incoming_new_zone.jso
     return df
 
 
-def get_prior_snapshot(history_df: pd.DataFrame) -> pd.DataFrame:
-    """Latest row per health zone from history only. This is the state to diff against."""
+def get_prior_snapshot(history_df: pd.DataFrame, disaster_id: Optional[int] = None) -> pd.DataFrame:
+    """Latest row per health zone from history only. This is the state to diff against.
+
+    If `disaster_id` is given, the history is scoped to that outbreak first, so zones from other
+    outbreaks in the shared file can never leak into the prior. Default None = no filter (keeps
+    the frozen eval path's behavior unchanged)."""
+    df = history_df if disaster_id is None else history_df[history_df["disaster_id"] == disaster_id]
     return (
-        history_df.sort_values("date")
+        df.sort_values("date")
         .drop_duplicates(subset=["health_zone"], keep="last")
         .reset_index(drop=True)
     )
@@ -110,14 +118,18 @@ def get_prior_snapshot(history_df: pd.DataFrame) -> pd.DataFrame:
 def ingestion_pipeline(
     history_path: str = "data/history.csv",
     report_path: str = "data/incoming/incoming_new_zone.json",
+    disaster_id: Optional[int] = None,
 ) -> Dict:
     """
     Full ingestion: load and validate both inputs, then return the prior snapshot and
     the incoming records separately for the signal layer.
+
+    `disaster_id` optionally scopes the prior snapshot to one outbreak; default None = no filter,
+    so the frozen eval runner (which calls this without the argument) is unaffected.
     """
     history = load_history(history_path)
     incoming = load_incoming_report(report_path)
-    prior = get_prior_snapshot(history)
+    prior = get_prior_snapshot(history, disaster_id)
 
     return {
         "status": "success",

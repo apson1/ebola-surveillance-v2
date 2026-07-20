@@ -17,13 +17,13 @@ from src.insights.history_views import (
 
 
 def _hist(rows):
-    cols = ["date", "province", "health_zone", "suspected_cases",
+    cols = ["disaster_id", "date", "province", "health_zone", "suspected_cases",
             "confirmed_cases", "deaths", "source_url", "report_date"]
     return pd.DataFrame(rows, columns=cols)
 
 
-def _r(date, zone, confirmed, deaths=0, province="Ituri"):
-    return {"date": date, "province": province, "health_zone": zone,
+def _r(date, zone, confirmed, deaths=0, province="Ituri", disaster_id=52586):
+    return {"disaster_id": disaster_id, "date": date, "province": province, "health_zone": zone,
             "suspected_cases": None, "confirmed_cases": confirmed, "deaths": deaths,
             "source_url": "http://x", "report_date": date}
 

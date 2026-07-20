@@ -86,10 +86,11 @@ Non-goals (do not build these):
 
 ## 8. Data contract (single source of truth for schema)
 
-All data files use these columns, in this order:
+All data files use these columns, in this order (single source of truth: `src/contract.py`):
 
 | column            | type    | notes                                                                                  |
 |-------------------|---------|----------------------------------------------------------------------------------------|
+| disaster_id       | integer | outbreak partition key (Phase B). Matches `RELIEFWEB_DISASTER_ID` + `src/outbreaks.py`; part of the identity/dedup key. |
 | date              | date    |  as-of date, when the situation was true. ISO 8601, e.g. 2026-06-17                    |
 | province          | string  | e.g. Ituri, North Kivu, South Kivu                                                     |
 | health_zone       | string  | e.g. Mongbwalu, Bunia, Rwampara                                                        |
@@ -119,6 +120,12 @@ history. All non-promotion write paths remain strict.
 `data/incoming/*.json` and the agent scans them against history. An incoming report is JSON
 with a top-level `report_date` and a `data` array of records. Each record carries the
 columns above except `report_date`, which is filled from the top-level value.
+
+**`disaster_id` on incoming (Phase B).** Optional in the JSON. Precedence when tagging an
+incoming record: per-record `disaster_id` > file-level `disaster_id` > the active outbreak
+(`RELIEFWEB_DISASTER_ID`). Nothing is silently mis-tagged — a scenario file can pin its own
+outbreak; otherwise the active one is used. History is migrated to `disaster_id` once via
+`scripts/migrate_add_disaster_id.py` (rollback: `scripts/rollback_disaster_id.py`).
 
 ## 9. Glossary
 

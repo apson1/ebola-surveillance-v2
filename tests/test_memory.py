@@ -13,6 +13,7 @@ from src.orchestrator import run_scan
 
 SEED = "data/history.csv"
 NEW_ZONE = "data/incoming/incoming_new_zone.json"
+DID = 52586  # active outbreak (DRC Ebola 2026)
 
 
 def _rowcount(path):
@@ -45,10 +46,10 @@ class TestMemory(unittest.TestCase):
 
     def test_append_skips_null_count_rows(self):
         records = [
-            {"date": "2026-06-25", "province": "Ituri", "health_zone": "Ztest",
+            {"disaster_id": DID, "date": "2026-06-25", "province": "Ituri", "health_zone": "Ztest",
              "suspected_cases": 5, "confirmed_cases": 3, "deaths": 1,
              "source_url": "http://x", "report_date": "2026-06-26"},
-            {"date": "2026-06-25", "province": "Ituri", "health_zone": "Znull",
+            {"disaster_id": DID, "date": "2026-06-25", "province": "Ituri", "health_zone": "Znull",
              "suspected_cases": 5, "confirmed_cases": None, "deaths": 1,
              "source_url": "http://x", "report_date": "2026-06-26"},
         ]
@@ -65,7 +66,7 @@ class TestMemory(unittest.TestCase):
         """Addition #2: re-appending the same identity key with a higher count updates the
         existing row rather than creating a duplicate."""
         path = os.path.join(self.tmp, "fresh.csv")
-        key = {"date": "2026-06-25", "province": "Ituri", "health_zone": "Upsert",
+        key = {"disaster_id": DID, "date": "2026-06-25", "province": "Ituri", "health_zone": "Upsert",
                "source_url": "http://u"}
         r1 = {**key, "suspected_cases": 10, "confirmed_cases": 80, "deaths": 5, "report_date": "2026-06-26"}
         r2 = {**key, "suspected_cases": 12, "confirmed_cases": 120, "deaths": 7, "report_date": "2026-06-27"}

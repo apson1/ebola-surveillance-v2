@@ -105,9 +105,12 @@ def _call_extraction_llm(report_body: str) -> _ExtractionPayload:
     return _ExtractionPayload.model_validate_json(resp.text)
 
 
-def extract_report(report_body: str, report_url: str, report_date: str) -> ExtractionResult:
+def extract_report(report_body: str, report_url: str, report_date: str,
+                   disaster_id: int) -> ExtractionResult:
     """Extract per-zone records from a report body. `report_url` is the provenance (source_url)
-    and the report_id used in logs; `report_date` is the publication date. Never raises."""
+    and the report_id used in logs; `report_date` is the publication date; `disaster_id` tags the
+    outbreak. source_url, report_date and disaster_id are filled from args, never the model.
+    Guards and prompt are unchanged (their generalization is B2). Never raises."""
     try:
         payload = _call_extraction_llm(report_body)
     except Exception as e:  # noqa: BLE001 — any LLM/parse failure degrades to empty
@@ -143,6 +146,7 @@ def extract_report(report_body: str, report_url: str, report_date: str) -> Extra
             dropped.append({"record": raw, "reason": "denied_zone"})
             continue
         records.append({
+            "disaster_id": disaster_id,   # from args, never the model
             "date": row.date,
             "province": row.province,
             "health_zone": row.health_zone,

@@ -18,13 +18,11 @@ from typing import Dict, List
 
 import pandas as pd
 
-CONTRACT_COLUMNS = [
-    "date", "province", "health_zone",
-    "suspected_cases", "confirmed_cases", "deaths",
-    "source_url", "report_date",
-]
-COUNT_COLUMNS = ["suspected_cases", "confirmed_cases", "deaths"]
-DEDUP_KEY = ["date", "province", "health_zone", "source_url"]
+from src.contract import CONTRACT_COLUMNS, COUNT_COLUMNS, IDENTITY_COLUMNS
+
+# Upsert key = the contract identity (now includes disaster_id), so two outbreaks' rows for the
+# same zone/date/source stay distinct in the shared file. Re-exported name kept for readers.
+DEDUP_KEY = IDENTITY_COLUMNS
 
 
 def _norm_date(value) -> str:
