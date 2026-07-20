@@ -29,11 +29,13 @@ NEW_BODY = (
 )
 NEW_URL = "http://reliefweb/new-sitrep"
 OLD_URL = "http://reliefweb/old-sitrep"
+DID = 52586  # active outbreak (DRC Ebola 2026)
 
 
 def _prior_history_csv(path: str) -> None:
     """One prior row: Beni at 100 confirmed on 2026-07-08, from a DIFFERENT report."""
     pd.DataFrame([{
+        "disaster_id": DID,
         "date": "2026-07-08", "province": "Nord-Kivu", "health_zone": "Beni",
         "suspected_cases": 20, "confirmed_cases": 100, "deaths": 25,
         "source_url": OLD_URL, "report_date": "2026-07-08",
@@ -64,7 +66,7 @@ class TestReviewModel(unittest.TestCase):
                           confirmed_cases=1926, deaths=702,
                           snippet="DR Congo reported 1926 confirmed cases and 702 deaths nationally."),
         ])
-        extraction = extract_report(body, NEW_URL, "2026-07-16")
+        extraction = extract_report(body, NEW_URL, "2026-07-16", DID)
         self.assertEqual(len(extraction.records), 1)          # only Beni survives the guards
         self.assertTrue(extraction.dropped)                    # national line dropped
 
@@ -96,7 +98,7 @@ class TestReviewModel(unittest.TestCase):
                           confirmed_cases=120, deaths=30,
                           snippet="Beni reported one hundred and twenty confirmed cases."),
         ])
-        extraction = extract_report(body, NEW_URL, "2026-07-16")
+        extraction = extract_report(body, NEW_URL, "2026-07-16", DID)
         self.assertEqual(len(extraction.records), 0)
         model = build_review(extraction, None)
         self.assertEqual(model.approvable_count, 0)
@@ -110,14 +112,14 @@ class TestOptionBScan(unittest.TestCase):
         hist = os.path.join(tmp, "history.csv")
         try:
             pd.DataFrame([
-                {"date": "2026-07-08", "province": "Nord-Kivu", "health_zone": "Beni",
+                {"disaster_id": DID, "date": "2026-07-08", "province": "Nord-Kivu", "health_zone": "Beni",
                  "suspected_cases": 20, "confirmed_cases": 100, "deaths": 25,
                  "source_url": OLD_URL, "report_date": "2026-07-08"},
-                {"date": "2026-07-15", "province": "Nord-Kivu", "health_zone": "Beni",
+                {"disaster_id": DID, "date": "2026-07-15", "province": "Nord-Kivu", "health_zone": "Beni",
                  "suspected_cases": 40, "confirmed_cases": 300, "deaths": 60,
                  "source_url": NEW_URL, "report_date": "2026-07-16"},
             ]).to_csv(hist, index=False)
-            prior = prior_excluding_source(hist, NEW_URL)
+            prior = prior_excluding_source(hist, NEW_URL, DID)
             # the NEW_URL row is excluded; only the OLD_URL Beni@100 remains
             self.assertEqual(len(prior), 1)
             self.assertEqual(prior[0]["confirmed_cases"], 100)
@@ -142,7 +144,7 @@ class TestOptionBScan(unittest.TestCase):
                               confirmed_cases=80, deaths=10,
                               snippet="Mongbwalu health zone: 80 confirmed cases and 10 deaths as of 15 July 2026."),
             ])
-            extraction = extract_report(NEW_BODY, NEW_URL, "2026-07-16")
+            extraction = extract_report(NEW_BODY, NEW_URL, "2026-07-16", DID)
             self.assertEqual(len(extraction.records), 2)
 
             # 2. independent validation passes both
@@ -163,7 +165,7 @@ class TestOptionBScan(unittest.TestCase):
             self.assertEqual(len(pd.read_csv(hist)), 3)
 
             # 4. option B: scan the report's records against the source_url-excluded prior
-            flags = detect_new_data(validation.validated, NEW_URL, hist)
+            flags = detect_new_data(validation.validated, NEW_URL, hist, DID)
             by_detector = {(f["detector"], f["health_zone"]) for f in flags}
 
             # new_zone fires for Mongbwalu (absent from the source-excluded prior)

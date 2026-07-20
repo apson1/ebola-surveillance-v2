@@ -15,6 +15,8 @@ from src.live.candidate_store import (
     write_candidates, promote_candidates, reset_candidates, candidate_id, PromotionResult,
 )
 
+DID = 52586  # active outbreak (DRC Ebola 2026) for the disaster_id passthrough
+
 # A body whose sentences are copied verbatim into the crafted snippets below.
 BODY = (
     "Situation update as of 15 July 2026.\n"
@@ -41,7 +43,7 @@ class TestExtraction(unittest.TestCase):
     @patch("src.live.extract_report._call_extraction_llm")
     def test_extract_three_attributed_records_with_snippets(self, mock_llm):
         mock_llm.return_value = _ExtractionPayload(records=_three_rows())
-        res = extract_report(BODY, "http://x/1", "2026-07-16")
+        res = extract_report(BODY, "http://x/1", "2026-07-16", DID)
         self.assertEqual(len(res.records), 3)
         for r in res.records:
             self.assertIn(r["snippet"], BODY)               # verbatim
@@ -51,7 +53,7 @@ class TestExtraction(unittest.TestCase):
     @patch("src.live.extract_report._call_extraction_llm")
     def test_vague_body_returns_zero_records(self, mock_llm):
         mock_llm.return_value = _ExtractionPayload(records=[])
-        res = extract_report("Cases are rising in the region; officials are concerned.", "http://x/2", "2026-07-16")
+        res = extract_report("Cases are rising in the region; officials are concerned.", "http://x/2", "2026-07-16", DID)
         self.assertEqual(len(res.records), 0)
 
     @patch("src.live.extract_report._call_extraction_llm")
@@ -62,7 +64,7 @@ class TestExtraction(unittest.TestCase):
             _ExtractedRow(date="2026-07-14", province="", health_zone="",
                           confirmed_cases=1926, deaths=702, snippet=body),
         ])
-        res = extract_report(body, "http://x/3", "2026-07-14")
+        res = extract_report(body, "http://x/3", "2026-07-14", DID)
         self.assertEqual(len(res.records), 0)
         self.assertTrue(any(d["reason"] == "no_health_zone" for d in res.dropped))
 
@@ -73,7 +75,7 @@ class TestExtraction(unittest.TestCase):
         mock_llm.return_value = _ExtractionPayload(records=[
             _row("Beni", 120, None, "Beni reported one hundred and twenty confirmed cases."),
         ])
-        res = extract_report(body, "http://x/4", "2026-07-16")
+        res = extract_report(body, "http://x/4", "2026-07-16", DID)
         self.assertEqual(len(res.records), 0)
         self.assertTrue(any(d["reason"] == "snippet_not_verbatim" for d in res.dropped))
 
@@ -81,7 +83,7 @@ class TestExtraction(unittest.TestCase):
     def test_llm_failure_flags_not_ok_with_error(self, mock_llm):
         # A rate-limit / network / parse failure must be distinguishable from genuine empty data.
         mock_llm.side_effect = RuntimeError("429 RESOURCE_EXHAUSTED: quota exceeded")
-        res = extract_report(BODY, "http://x/5", "2026-07-16")
+        res = extract_report(BODY, "http://x/5", "2026-07-16", DID)
         self.assertFalse(res.ok)
         self.assertIn("RESOURCE_EXHAUSTED", res.error)
         self.assertEqual(res.records, [])
@@ -91,7 +93,7 @@ class TestExtraction(unittest.TestCase):
     def test_genuine_empty_is_ok_true(self, mock_llm):
         # The model ran fine and found nothing -> ok stays True (a real "no per-zone data").
         mock_llm.return_value = _ExtractionPayload(records=[])
-        res = extract_report("Cases are rising in the region.", "http://x/6", "2026-07-16")
+        res = extract_report("Cases are rising in the region.", "http://x/6", "2026-07-16", DID)
         self.assertTrue(res.ok)
         self.assertEqual(res.error, "")
         self.assertEqual(res.records, [])
@@ -100,7 +102,7 @@ class TestExtraction(unittest.TestCase):
     def _records_from_rows(self):
         payload = _ExtractionPayload(records=_three_rows())
         with patch("src.live.extract_report._call_extraction_llm", return_value=payload):
-            return extract_report(BODY, "http://x/1", "2026-07-16").records
+            return extract_report(BODY, "http://x/1", "2026-07-16", DID).records
 
     @patch("src.live.validate_extraction._call_validation_llm")
     def test_validate_all_pass(self, mock_v):
@@ -137,7 +139,7 @@ class TestExtraction(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         cand = os.path.join(tmp, "candidate_history.csv")
         hist = os.path.join(tmp, "history.csv")
-        rec = {"date": "2026-07-15", "province": "Ituri", "health_zone": "Beni",
+        rec = {"disaster_id": DID, "date": "2026-07-15", "province": "Ituri", "health_zone": "Beni",
                "suspected_cases": 150, "confirmed_cases": 120, "deaths": 30,
                "source_url": "http://x/1", "report_date": "2026-07-16", "snippet": "..."}
         try:
@@ -172,7 +174,7 @@ class TestExtraction(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         cand = os.path.join(tmp, "candidate.csv")
         hist = os.path.join(tmp, "history.csv")
-        rec = {"date": "2026-07-12", "province": "Ituri", "health_zone": "Bunia",
+        rec = {"disaster_id": DID, "date": "2026-07-12", "province": "Ituri", "health_zone": "Bunia",
                "suspected_cases": None, "confirmed_cases": 503, "deaths": 156,
                "source_url": "http://x", "report_date": "2026-07-14",
                "snippet": "Bunia (503 cases, 156 deaths)"}
@@ -198,7 +200,7 @@ class TestExtraction(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         cand = os.path.join(tmp, "candidate.csv")
         hist = os.path.join(tmp, "history.csv")
-        rec = {"date": "2026-07-12", "province": "Ituri", "health_zone": "Bunia",
+        rec = {"disaster_id": DID, "date": "2026-07-12", "province": "Ituri", "health_zone": "Bunia",
                "suspected_cases": 10, "confirmed_cases": None, "deaths": 156,
                "source_url": "http://x", "report_date": "2026-07-14", "snippet": "..."}
         try:
@@ -220,7 +222,7 @@ class TestExtraction(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         cand = os.path.join(tmp, "candidate.csv")
         hist = os.path.join(tmp, "history.csv")
-        rec = {"date": "2026-07-12", "province": "North Kivu", "health_zone": "Beni",
+        rec = {"disaster_id": DID, "date": "2026-07-12", "province": "North Kivu", "health_zone": "Beni",
                "suspected_cases": None, "confirmed_cases": 30, "deaths": 20,
                "source_url": "https://reliefweb.int/node/4221419", "report_date": "",
                "snippet": "Beni (30 cases, 20 deaths)"}
@@ -245,7 +247,7 @@ class TestExtraction(unittest.TestCase):
             _ExtractedRow(date="2026-07-14", province="", health_zone="DRC",
                           confirmed_cases=1926, deaths=702, snippet=body),
         ])
-        res = extract_report(body, "http://x/9", "2026-07-14")
+        res = extract_report(body, "http://x/9", "2026-07-14", DID)
         self.assertEqual(len(res.records), 0)
         self.assertTrue(any(d["reason"] == "denied_zone" for d in res.dropped))
 

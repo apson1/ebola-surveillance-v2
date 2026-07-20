@@ -16,7 +16,8 @@ from typing import Dict, List
 
 import pandas as pd
 
-from src.memory.history_store import CONTRACT_COLUMNS, append_to_history
+from src.contract import CONTRACT_COLUMNS, IDENTITY_COLUMNS
+from src.memory.history_store import append_to_history
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,6 @@ class PromotionResult:
     rejected: List[Dict] = field(default_factory=list)   # {candidate_id, reason}
 
 CANDIDATE_PATH = "data/candidate_history.csv"
-_IDENTITY = ["date", "province", "health_zone", "source_url"]
 COLUMNS = ["candidate_id", "status"] + CONTRACT_COLUMNS + ["snippet", "validated_at"]
 # Valid status values: pending (just written), approved / rejected (human decision, Phase 3
 # UI), promoted (copied into history). Written rows start as 'pending'.
@@ -50,7 +50,7 @@ def _date_ok(v) -> bool:
 def candidate_id(record: Dict) -> str:
     """Stable id from the identity key, so a human can reference candidates for promotion and
     dedup is by id."""
-    key = "|".join(str(record.get(c, "")) for c in _IDENTITY)
+    key = "|".join(str(record.get(c, "")) for c in IDENTITY_COLUMNS)
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
 

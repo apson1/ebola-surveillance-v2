@@ -22,6 +22,7 @@ from src.live.live_scan import run_scan_on_new_data
 from src.insights.history_views import (
     zone_trend_series, compute_history_diff, top_zones_by_recent_change, latest_reporting_round,
 )
+from src.outbreaks import active_outbreak
 
 # Page Configuration
 st.set_page_config(
@@ -152,6 +153,16 @@ st.markdown(
     "with rule-based Python agents, and ranks and formats them for coordinator review."
 )
 
+# Display-only active-outbreak header. The active outbreak is a configuration choice
+# (RELIEFWEB_DISASTER_ID); switching is a config change, not a per-session action.
+_OUTBREAK = active_outbreak()
+st.markdown(
+    f"<div style='display:inline-block;padding:4px 12px;border:1px solid #6366f1;border-radius:8px;"
+    f"font-size:0.85rem;margin:0.2rem 0 0.5rem;'>🌍 Active outbreak: "
+    f"<b>{_OUTBREAK.display_name}</b> · disaster_id <code>{_OUTBREAK.disaster_id}</code></div>",
+    unsafe_allow_html=True,
+)
+
 tab_live, tab_history, tab_scenario = st.tabs(
     ["📡 Live scan (ReliefWeb)", "📊 History", "🧪 Scenario runner"]
 )
@@ -240,7 +251,8 @@ with tab_live:
                     st.error("Could not fetch this report's body (appname unset or unavailable). Try another report.")
                 else:
                     extraction = extract_report(body, st.session_state.live_source_url,
-                                                st.session_state.live_report_date)
+                                                st.session_state.live_report_date,
+                                                active_outbreak().disaster_id)
                     validation = validate_extraction(extraction.records, body) if extraction.records else None
                     st.session_state.live_extraction = extraction
                     st.session_state.live_validation = validation
@@ -457,13 +469,17 @@ with tab_history:
         hist = None
         st.info(f"No history is available to chart yet ({e}).")
 
+    active_id = active_outbreak().disaster_id
+    if hist is not None:
+        hist = hist[hist["disaster_id"] == active_id]  # scope every view to the active outbreak
+
     if hist is not None and len(hist):
         all_zones = sorted(hist["health_zone"].unique())
-        latest = latest_reporting_round(hist)
+        latest = latest_reporting_round(hist, active_id)
 
         # --- Section 1: per-zone trend charts ---
         st.markdown("#### Per-zone trends")
-        default_zones = top_zones_by_recent_change(hist, n=min(5, len(all_zones)))
+        default_zones = top_zones_by_recent_change(hist, n=min(5, len(all_zones)), disaster_id=active_id)
         selected = st.multiselect(
             "Zones to chart (default: the fastest-changing by recent Δ confirmed)",
             options=all_zones, default=default_zones,
@@ -471,7 +487,7 @@ with tab_history:
         if not selected:
             st.info("Select at least one zone to see its trend.")
         else:
-            series = zone_trend_series(hist, selected)
+            series = zone_trend_series(hist, selected, disaster_id=active_id)
             chart = alt.vconcat(
                 _trend_layer(series, "confirmed_cases", "Confirmed cases", latest),
                 _trend_layer(series, "deaths", "Deaths", latest),
@@ -488,13 +504,13 @@ with tab_history:
         st.markdown("---")
         st.markdown("#### Since the previous report")
         st.caption("Per zone: its two most-recent rows in history, largest movers first.")
-        diff = compute_history_diff(hist)
+        diff = compute_history_diff(hist, disaster_id=active_id)
         if not diff:
             st.info("Not enough history to compute a diff yet.")
         else:
             _render_diff_table(diff)
     elif hist is not None:
-        st.info("History is empty — promote a report in the Live scan tab to populate it.")
+        st.info("No history yet for this outbreak — promote a report in the Live scan tab to populate it.")
 
 
 # ========================================================================================

@@ -31,22 +31,30 @@ def _prepared(history_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def latest_reporting_round(history_df: pd.DataFrame) -> Optional[pd.Timestamp]:
-    """The global most-recent as-of date across ALL of history (not any zone subset). The trend
-    charts mark this date, and the diff uses it to decide staleness — one shared definition."""
+def _prepared_scoped(history_df: pd.DataFrame, disaster_id) -> pd.DataFrame:
+    """_prepared, then scoped to one outbreak when disaster_id is given (None = all outbreaks).
+    All views scope BEFORE computing, so staleness and 'latest round' are per-outbreak."""
+    df = _prepared(history_df)
+    return df if disaster_id is None else df[df["disaster_id"] == disaster_id]
+
+
+def latest_reporting_round(history_df: pd.DataFrame, disaster_id=None) -> Optional[pd.Timestamp]:
+    """The most-recent as-of date for the (optionally outbreak-scoped) history. The trend charts
+    mark this date and the diff uses it for staleness — one shared, per-outbreak definition."""
     if history_df is None or len(history_df) == 0:
         return None
-    return _prepared(history_df)["date"].max()
+    df = _prepared_scoped(history_df, disaster_id)
+    return None if len(df) == 0 else df["date"].max()
 
 
-def zone_trend_series(history_df: pd.DataFrame, zones=None) -> pd.DataFrame:
+def zone_trend_series(history_df: pd.DataFrame, zones=None, disaster_id=None) -> pd.DataFrame:
     """Tidy long frame [date, health_zone, confirmed_cases, deaths], sorted by zone then date.
 
-    Optionally filtered to `zones`. Sparse zones (1-2 rows) are kept as-is — the UI renders them
-    honestly with point markers rather than hiding them."""
+    Optionally scoped to one outbreak (`disaster_id`) and filtered to `zones`. Sparse zones (1-2
+    rows) are kept as-is — the UI renders them honestly with point markers rather than hiding."""
     if history_df is None or len(history_df) == 0:
         return pd.DataFrame(columns=_TREND_COLUMNS)
-    df = _prepared(history_df)[_TREND_COLUMNS]
+    df = _prepared_scoped(history_df, disaster_id)[_TREND_COLUMNS]
     if zones is not None:
         df = df[df["health_zone"].isin(list(zones))]
     return df.sort_values(["health_zone", "date"]).reset_index(drop=True)
@@ -74,21 +82,23 @@ def _change_magnitude(delta_confirmed, current_confirmed) -> int:
     return abs(delta_confirmed) if delta_confirmed is not None else int(current_confirmed)
 
 
-def compute_history_diff(history_df: pd.DataFrame) -> List[Dict]:
-    """Per-zone diff between each zone's two most-recent rows.
+def compute_history_diff(history_df: pd.DataFrame, disaster_id=None) -> List[Dict]:
+    """Per-zone diff between each zone's two most-recent rows, optionally scoped to one outbreak.
 
     Each entry: health_zone, province, prior/current/delta for confirmed and deaths,
     days_between, status, surge_like. Status precedence:
     - `new`   : the zone has a single row (no prior to diff); deltas are None.
-    - `stale` : the zone's latest row predates the global latest reporting round (it did not
-                appear in the most recent report).
+    - `stale` : the zone's latest row predates the latest reporting round (it did not appear in
+                the most recent report for this outbreak).
     - `changed`: otherwise.
     `surge_like` is set only for `changed` rows (a stale zone is never flagged as a current
     surge; a new zone has no prior). Sorted by (surge_like, change magnitude) descending.
     Negative deltas (data revisions) are preserved, not clamped."""
     if history_df is None or len(history_df) == 0:
         return []
-    df = _prepared(history_df)
+    df = _prepared_scoped(history_df, disaster_id)
+    if len(df) == 0:
+        return []
     global_max = df["date"].max()
 
     rows: List[Dict] = []
@@ -126,10 +136,11 @@ def compute_history_diff(history_df: pd.DataFrame) -> List[Dict]:
     return rows
 
 
-def top_zones_by_recent_change(history_df: pd.DataFrame, n: int = 5) -> List[str]:
+def top_zones_by_recent_change(history_df: pd.DataFrame, n: int = 5, disaster_id=None) -> List[str]:
     """The n zones changing fastest by recent Δconfirmed (largest movers first), for the chart's
-    default selection. A new zone ranks by its current count (emergence from zero)."""
-    diff = compute_history_diff(history_df)  # already sorted by (surge_like, magnitude) desc
+    default selection, optionally scoped to one outbreak. A new zone ranks by its current count
+    (emergence from zero)."""
+    diff = compute_history_diff(history_df, disaster_id)  # sorted by (surge_like, magnitude) desc
     ordered = sorted(
         diff,
         key=lambda r: _change_magnitude(r["delta_confirmed"], r["current_confirmed"]),

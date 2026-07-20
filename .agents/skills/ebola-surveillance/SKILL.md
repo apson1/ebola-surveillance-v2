@@ -32,13 +32,15 @@ memory) -> alert agent -> guardrail layer -> human coordinator.
 
 ## Data contract
 
-All data files use exactly these columns, in order:
-`date, province, health_zone, suspected_cases, confirmed_cases, deaths, source_url, report_date`.
-`date` is the as-of date the detectors order by; `report_date` is the publication date used
-for provenance. Both are ISO 8601. Case and death counts are cumulative integers. `confirmed_cases`
-and `deaths` are never null in history; `suspected_cases` may be null only for records promoted
-from live extraction (scoped exception, see context.md sec 8). Do not add, rename, or reorder
-columns without updating `docs/context.md` and every reader.
+All data files use exactly these nine columns, in order (single source of truth: `src/contract.py`):
+`disaster_id, date, province, health_zone, suspected_cases, confirmed_cases, deaths, source_url, report_date`.
+`disaster_id` (Phase B) is the outbreak partition key so one history file can hold multiple
+outbreaks; it is part of the identity/dedup key. `date` is the as-of date the detectors order by;
+`report_date` is the publication date used for provenance. Both are ISO 8601. Case and death counts
+are cumulative integers. `confirmed_cases` and `deaths` are never null in history; `suspected_cases`
+may be null only for records promoted from live extraction (scoped exception, see context.md sec 8).
+For an incoming report, `disaster_id` precedence is per-record > file-level > active outbreak. Do
+not add, rename, or reorder columns without updating `src/contract.py`, `docs/context.md`, and every reader.
 
 ## Repository map
 
