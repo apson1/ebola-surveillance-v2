@@ -127,6 +127,12 @@ incoming record: per-record `disaster_id` > file-level `disaster_id` > the activ
 outbreak; otherwise the active one is used. History is migrated to `disaster_id` once via
 `scripts/migrate_add_disaster_id.py` (rollback: `scripts/rollback_disaster_id.py`).
 
+**Active outbreak (Phase B3).** `RELIEFWEB_DISASTER_ID` is the *default* active outbreak. The
+Live scan + History tabs expose a session-scoped selector (`session_state.active_disaster_id`,
+defaulting to the env value) over `src/outbreaks.py`; switching re-scopes the live query,
+history views, and live scan, and `live_sources` caches per `disaster_id`. The Scenario runner
+and the frozen eval path stay on the env default and are not affected by the selector.
+
 **Outbreak-configured extraction (Phase B2).** The live-extraction deny-list and both LLM
 prompts (extract + validate) read the active outbreak profile in `src/outbreaks.py`: the
 deny-list is the profile's `denied_zone_aliases` (per-outbreak, no cross-outbreak leak, no

@@ -57,7 +57,10 @@ not add, rename, or reorder columns without updating `src/contract.py`, `docs/co
   `denied_zone_aliases`, `disease`, and `country_name` (Phase B2). The guards, the two-model
   sequence, and the human promotion gate are outbreak-agnostic and unchanged.
 - `src/contract.py` the single 9-column data contract + identity key. `src/outbreaks.py` the
-  outbreak profile registry (active outbreak from `RELIEFWEB_DISASTER_ID`).
+  outbreak profile registry. `RELIEFWEB_DISASTER_ID` is the **default** active outbreak; the
+  Live scan + History tabs have a session selector (`session_state.active_disaster_id`) that
+  overrides it, and `live_sources` fetches/caches per `disaster_id`. The Scenario runner and the
+  eval path stay on the env default.
 - `src/memory/` the history store.
 - `src/config.py` thresholds and banned output patterns. All tunables live here.
 - `src/orchestrator.py` the ADK wiring and the `run_scan(incoming_path)` entry point.

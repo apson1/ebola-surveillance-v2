@@ -1,3 +1,6 @@
+import os
+import shutil
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -54,6 +57,65 @@ class TestFetchReportMeta(unittest.TestCase):
     def test_disabled_when_appname_unset(self):
         with patch("src.ingestion.live_sources.RELIEFWEB_APPNAME", None):
             self.assertEqual(fetch_report_meta(4221419), {})
+
+
+def _pinned_did(body):
+    return next((c["value"] for c in body.get("filter", {}).get("conditions", [])
+                 if c["field"] == "disaster.id"), None)
+
+
+class TestFetchCacheAndFallback(unittest.TestCase):
+    """Hermetic — mocks the HTTP call and a temp cache file to check the disaster_id-keyed cache
+    and the profile-driven fallback query (Phase B3)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.cache = os.path.join(self.tmp, "cache.json")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    @patch("src.ingestion.live_sources.RELIEFWEB_APPNAME", "test-app")
+    def test_cache_is_keyed_by_disaster_id(self):
+        def side_effect(url, params=None, json=None, timeout=None):
+            did = _pinned_did(json)
+            m = MagicMock()
+            m.raise_for_status.return_value = None
+            m.json.return_value = {"data": [_report_item(did, f"report for disaster {did}", [])]}
+            return m
+
+        with patch("src.ingestion.live_sources._CACHE_FILE", self.cache), \
+             patch("src.ingestion.live_sources.requests.post", side_effect=side_effect) as mp:
+            a1 = fetch_recent_drc_ebola_reports(limit=5, disaster_id=111)
+            b1 = fetch_recent_drc_ebola_reports(limit=5, disaster_id=222)
+            self.assertIn("111", a1.reports[0]["title"])
+            self.assertIn("222", b1.reports[0]["title"])   # B did NOT serve A's cache
+            after_two = mp.call_count
+            a2 = fetch_recent_drc_ebola_reports(limit=5, disaster_id=111)   # within TTL
+            self.assertEqual(a2.reports, a1.reports)        # served from A's cache slot
+            self.assertEqual(mp.call_count, after_two)      # no new HTTP call
+
+    @patch("src.ingestion.live_sources.RELIEFWEB_APPNAME", "test-app")
+    def test_fallback_uses_profile_country_and_query(self):
+        def side_effect(url, params=None, json=None, timeout=None):
+            m = MagicMock()
+            m.raise_for_status.return_value = None
+            # pinned query returns nothing -> forces the fallback; fallback returns a report
+            m.json.return_value = ({"data": [_report_item(1, "fallback report", [])]}
+                                   if "query" in json else {"data": []})
+            return m
+
+        with patch("src.ingestion.live_sources._CACHE_FILE", self.cache), \
+             patch("src.ingestion.live_sources.requests.post", side_effect=side_effect) as mp:
+            res = fetch_recent_drc_ebola_reports(limit=5, disaster_id=52586, force=True)
+            self.assertEqual(res.mode, "fallback")
+            fallback_bodies = [c.kwargs["json"] for c in mp.call_args_list if "query" in c.kwargs["json"]]
+            self.assertTrue(fallback_bodies, "fallback query should have been issued")
+            body = fallback_bodies[0]
+            self.assertEqual(body["query"]["value"], "ebola")                 # DRC profile.fallback_query
+            iso3 = next(c["value"] for c in body["filter"]["conditions"]
+                        if c["field"] == "primary_country.iso3")
+            self.assertEqual(iso3, "cod")                                     # DRC profile.country_iso3
 
 
 class TestLiveSources(unittest.TestCase):
